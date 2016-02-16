@@ -35,12 +35,12 @@
 #include <string.h> // for memcpy
 #include <stddef.h> // for memcpy
 #include "cadscenefile.h"
+#include <NvFoundation.h>
 
 #ifdef WIN32
 #define FREAD(a,b,c,d,e) fread_s(a,b,c,d,e)
 #else
 #define FREAD(a,b,c,d,e) fread(a,c,d,e)
-#define __forceinline inline
 #endif
 
 #define CADSCENEFILE_MAGIC 1567262451
@@ -50,14 +50,6 @@
 #else
 #define xftell(f) ftell(f)
 #define xfseek(f,pos,encoded) fseek(f,(long)pos,encoded)
-#endif
-
-#if defined(__GNUC__) && __GNUC__ >= 3 && __GNUC_MINOR__ >= 4
-  #define CSF_RESTRICT        __restrict__
-#elif defined(__MSC__) || defined(_MSC_VER)
-  #define CSF_RESTRICT __restrict
-#else
-  #error "compiler unkown"
 #endif
 
 struct CSFileMemory_s
@@ -506,12 +498,12 @@ CSFAPI int CSFile_saveExt(CSFile* csf, const char* filename)
 
 #endif
 
-static __forceinline void Matrix44Copy(float* CSF_RESTRICT dst, const float* CSF_RESTRICT  a)
+static NV_FORCE_INLINE void Matrix44Copy(float* NV_RESTRICT dst, const float* NV_RESTRICT  a)
 {
   memcpy(dst,a,sizeof(float) * 16);
 }
 
-static __forceinline void Matrix44MultiplyFull( float* CSF_RESTRICT clip, const float* CSF_RESTRICT  proj , const float* CSF_RESTRICT modl)
+static NV_FORCE_INLINE void Matrix44MultiplyFull( float* NV_RESTRICT clip, const float* NV_RESTRICT  proj , const float* NV_RESTRICT modl)
 {
 
   clip[ 0] = modl[ 0] * proj[ 0] + modl[ 1] * proj[ 4] + modl[ 2] * proj[ 8] + modl[ 3] * proj[12];
@@ -536,7 +528,7 @@ static __forceinline void Matrix44MultiplyFull( float* CSF_RESTRICT clip, const 
 
 }
 
-static void CSFile_transformHierarchy(CSFile *csf, CSFNode * CSF_RESTRICT node, CSFNode * CSF_RESTRICT parent)
+static void CSFile_transformHierarchy(CSFile *csf, CSFNode * NV_RESTRICT node, CSFNode * NV_RESTRICT parent)
 {
   if (parent){
     Matrix44MultiplyFull(node->worldTM, parent->worldTM, node->objectTM);
@@ -546,7 +538,7 @@ static void CSFile_transformHierarchy(CSFile *csf, CSFNode * CSF_RESTRICT node, 
   }
 
   for (int i = 0; i < node->numChildren; i++){
-    CSFNode* CSF_RESTRICT child = csf->nodes + node->children[i];
+    CSFNode* NV_RESTRICT child = csf->nodes + node->children[i];
     CSFile_transformHierarchy(csf,child,node);
   }
 }
