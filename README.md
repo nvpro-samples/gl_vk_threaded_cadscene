@@ -100,7 +100,7 @@ Same as above just that the command-buffers are passed to main thread for submis
 
 #### Uniform Handling in Vulkan
 
-The sample allows to feed the material and matrix data in various ways to Vulkan by changing the ```UNIFORMS_TECHNIQUE``` define. Please find much more detailed information [here](doc/vulkan_uniforms.htm).
+The sample allows to feed the material and matrix data in various ways to Vulkan by changing the ```UNIFORMS_TECHNIQUE``` define. Please find much more detailed information [here](doc/vulkan_uniforms.md).
 
 ## Performance
 
