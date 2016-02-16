@@ -167,6 +167,8 @@ Overall Vulkan is a big improvement over unextended OpenGL, especially re-using 
 As this sample only uses two pipeline objects (or state-objects in OpenGL) and the rest of the scene's resources are static as well, Vulkan cannot make use of its greatest strength: generating and validating resources in parallel. Therefore, benchmarks in samples like this are very directed at a certain problem and only demonstrate a snapshot of an APIs capability.
 
 ### Building
+Make sure to have installed the [Vulkan-SDK](http://lunarg.com/vulkan-sdk/) and a [driver that supports Vulkan](https://developer.nvidia.com/vulkan-driver).
+
 Ideally clone this and other interesting [nvpro-samples](https://github.com/nvpro-samples) repositories into a common subdirectory. You will always need [shared_sources](https://github.com/nvpro-samples/shared_sources) and on Windows [shared_external](https://github.com/nvpro-samples/shared_external). The shared directories are searched either as subdirectory of the sample or one directory up. It is recommended to use the [build_all](https://github.com/nvpro-samples/build_all) cmake as entry point, it will also give you options to enable/disable individual samples when creating the solutions.
 
 ### Related Samples
