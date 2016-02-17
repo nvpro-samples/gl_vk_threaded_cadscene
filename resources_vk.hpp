@@ -363,8 +363,7 @@ namespace csfthreaded {
     static bool ResourcesVK::isAvailable();
 
 
-    VkResult      allocMemAndBindObject(VkBuffer obj, VkDeviceMemory &gpuMem, VkFlags memProps = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    VkResult      allocMemAndBindObject(VkImage  obj, VkDeviceMemory &gpuMem, VkFlags memProps = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    VkResult        allocMemAndBindBuffer(VkBuffer obj, VkDeviceMemory &gpuMem, VkFlags memProps = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     
     VkRenderPass    createPass(bool clear, int msaa);
     VkShaderModule  createShader( nv_helpers_gl::ProgramManager &mgr, nv_helpers_gl::ProgramManager::ProgramID pid, GLenum what);

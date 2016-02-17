@@ -297,6 +297,8 @@ namespace csfthreaded {
       glCreateStatesNV(1,&stateobjects.draw_line_tris);
       glCreateStatesNV(1,&stateobjects.draw_line);
     }
+
+    glDepthFunc(GL_LESS);
   }
 
 #define TOSTRING(a)  case a: return #a;

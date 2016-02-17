@@ -109,7 +109,7 @@ namespace csfthreaded {
 
   //////////////////////////////////////////////////////////////////////////
 
-  VkResult ResourcesVK::allocMemAndBindObject(VkBuffer obj, VkDeviceMemory &gpuMem, VkFlags memProps)
+  VkResult ResourcesVK::allocMemAndBindBuffer(VkBuffer obj, VkDeviceMemory &gpuMem, VkFlags memProps)
   {
     VkResult result;
 
@@ -127,35 +127,6 @@ namespace csfthreaded {
     }
 
     result = vkBindBufferMemory(m_device, obj, gpuMem, 0);
-    if (result != VK_SUCCESS) {
-      return result;
-    }
-
-    return VK_SUCCESS;
-  }
-
-  VkResult ResourcesVK::allocMemAndBindObject(VkImage obj, VkDeviceMemory &gpuMem, VkFlags memProps)
-  {
-    VkResult result;
-
-    VkMemoryRequirements  memReqs;
-    vkGetImageMemoryRequirements(m_device, obj, &memReqs);
-
-    if (!memReqs.size){
-      return VK_SUCCESS;
-    }
-
-    VkMemoryAllocateInfo  memInfo;
-    if (!getMemoryAllocationInfo(memReqs, memProps, m_physical.memoryProperties, memInfo)){
-      return VK_ERROR_INITIALIZATION_FAILED;
-    }
-
-    result = vkAllocateMemory(m_device, &memInfo, NULL, &gpuMem);
-    if (result != VK_SUCCESS) {
-      return result;
-    }
-
-    result = vkBindImageMemory(m_device, obj, gpuMem, 0);
     if (result != VK_SUCCESS) {
       return result;
     }
@@ -1079,7 +1050,7 @@ namespace csfthreaded {
     VkPipelineDepthStencilStateCreateInfo dsStateInfo = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
     dsStateInfo.depthTestEnable = VK_TRUE;
     dsStateInfo.depthWriteEnable = VK_TRUE;
-    dsStateInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    dsStateInfo.depthCompareOp = VK_COMPARE_OP_LESS;
     dsStateInfo.depthBoundsTestEnable = VK_FALSE;
     dsStateInfo.stencilTestEnable = VK_FALSE;
     dsStateInfo.minDepthBounds = 0.0f;
@@ -1474,8 +1445,10 @@ namespace csfthreaded {
       submitInfo.pCommandBuffers = m_submissions.data();
 
       if (useImageReadSignals && m_submissionWaitForRead){
+        VkPipelineStageFlags  flags = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores   = &m_semImageRead;
+        submitInfo.pWaitDstStageMask = &flags;
         m_submissionWaitForRead = false;
       }
       if (useImageWriteSignals){
@@ -1510,7 +1483,7 @@ namespace csfthreaded {
       result = vkCreateBuffer(m_device, &bufferStageInfo, NULL, &m_buffer);
       assert(result == VK_SUCCESS);
 
-      result = res.allocMemAndBindObject(m_buffer, m_mem, (VkFlags)VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+      result = res.allocMemAndBindBuffer(m_buffer, m_mem, (VkFlags)VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
       assert(result == VK_SUCCESS);
 
       result = vkMapMemory(m_device, m_mem, 0, m_allocated, 0, (void**)&m_mapping);
@@ -1593,7 +1566,7 @@ namespace csfthreaded {
     result = vkCreateBuffer(m_device, &bufferInfo, NULL, &buffer);
     assert(result == VK_SUCCESS);
     
-    result = allocMemAndBindObject(buffer, bufferMem, memProps);
+    result = allocMemAndBindBuffer(buffer, bufferMem, memProps);
     assert(result == VK_SUCCESS);
 
     if (data){
