@@ -218,7 +218,7 @@ namespace csfthreaded {
       ProgramManager::Definition(GL_FRAGMENT_SHADER,  "#define WIREMODE 1\n",  "scene.frag.glsl"));
 
     programids.compute_animation = mgr.createProgram(
-      ProgramManager::Definition(GL_COMPUTE_SHADER,   "#define USE_POINTERS 1\n", "animation.comp.glsl"));
+      ProgramManager::Definition(GL_COMPUTE_SHADER,   m_cmdlist ? "#define USE_POINTERS 1\n" : "", "animation.comp.glsl"));
 
     updatedPrograms(mgr);
 
