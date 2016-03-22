@@ -375,7 +375,7 @@ bool vulkanCreateContext(VkDevice &device, VkPhysicalDevice& physicalDevice,  Vk
   VkApplicationInfo applicationInfo = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
   applicationInfo.pApplicationName = appTitle;
   applicationInfo.pEngineName = engineName;
-  applicationInfo.apiVersion = VK_API_VERSION;
+  applicationInfo.apiVersion = VK_MAKE_VERSION(1, 0, 4);
 
   // global layers and extensions
   const vector<VkLayerProperties> globalLayerProperties = GetGlobalLayerProperties();
