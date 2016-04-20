@@ -1104,7 +1104,7 @@ namespace csfthreaded {
       fsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
       fsStageInfo.pNext = NULL;
       fsStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-      vsStageInfo.pName = "main";
+      fsStageInfo.pName = "main";
       fsStageInfo.module = NULL;
 
       vsStageInfo.module = shaders.vertex_tris;
