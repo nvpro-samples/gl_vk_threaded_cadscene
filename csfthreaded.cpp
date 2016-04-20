@@ -500,7 +500,7 @@ namespace csfthreaded
       sceneUbo.viewMatrix = view;
       sceneUbo.viewMatrixIT = nv_math::transpose(nv_math::invert(view));
 
-      sceneUbo.viewPos = -view.col(3);
+      sceneUbo.viewPos = sceneUbo.viewMatrixIT.row(3);;
       sceneUbo.viewDir = -view.row(2);
 
       sceneUbo.wLightPos = sceneUbo.viewMatrixIT.row(3);
