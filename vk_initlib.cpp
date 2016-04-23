@@ -420,7 +420,7 @@ bool vulkanCreateContext(VkDevice &device, VkPhysicalDevice& physicalDevice,  Vk
 
   uint32_t physicalDeviceCount = 1;
   result = vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, &physicalDevice);
-  if (result != VK_SUCCESS) {
+  if (result != VK_SUCCESS && result != VK_INCOMPLETE) {
     return false;
   }
 
