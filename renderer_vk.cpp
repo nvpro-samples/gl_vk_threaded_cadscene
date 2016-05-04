@@ -167,7 +167,7 @@ namespace csfthreaded
             sc.cmdbuffers.push_back(cmd);
           }
 
-          cmd  = res->createCmdBuffer(m_cmdPool, false, true,true);
+          cmd  = res->createCmdBuffer(m_cmdPool, false, false, true);
           res->cmdDynamicState(cmd);
 
           lastMaterial = -1;

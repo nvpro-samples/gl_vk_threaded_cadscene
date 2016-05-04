@@ -153,14 +153,12 @@ namespace csfthreaded {
     struct {
       VkRenderPass
         sceneClear,
-        scenePreserve,
-        anim;
+        scenePreserve;
     } passes;
 
     struct {
       VkFramebuffer
-        scene,
-        anim;
+        scene;
     } fbos;
 
     struct {
@@ -409,6 +407,7 @@ namespace csfthreaded {
     void          cmdBeginRenderPass(VkCommandBuffer cmd, bool clear, bool hasSecondary=false) const;
     void          cmdPipelineBarrier(VkCommandBuffer cmd) const;
     void          cmdDynamicState(VkCommandBuffer cmd) const;
+    void          cmdImageTransition(VkCommandBuffer cmd, VkImage img, VkImageAspectFlags aspects, VkAccessFlags src, VkAccessFlags dst, VkImageLayout oldLayout, VkImageLayout newLayout) const;
   };
 
 }

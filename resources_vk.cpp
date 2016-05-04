@@ -180,32 +180,6 @@ namespace csfthreaded {
 
     // animation
     {
-      // Create the render pass
-      VkSubpassDescription subpass = {  };
-      subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
-      subpass.pDepthStencilAttachment = NULL;
-      VkRenderPassCreateInfo rpInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-      rpInfo.subpassCount = 1;
-      rpInfo.pSubpasses = &subpass;
-      VkRenderPass rp;
-      result = vkCreateRenderPass(m_device, &rpInfo, NULL, &rp);
-      assert (result == VK_SUCCESS);
-
-      passes.anim = rp;
-
-      // Create framebuffer
-      VkFramebufferCreateInfo fbInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
-      fbInfo.renderPass = rp;
-      fbInfo.width = 128;
-      fbInfo.height = 128;
-      fbInfo.layers = 1;
-      VkFramebuffer fb;
-      result = vkCreateFramebuffer(m_device, &fbInfo, NULL, &fb);
-      assert (result == VK_SUCCESS);
-
-      fbos.anim = fb;
-
-
       VkDescriptorSetLayoutBinding bindings[3] = { };
       bindings[UBO_ANIM].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
       bindings[UBO_ANIM].descriptorCount = 1;
@@ -521,8 +495,6 @@ namespace csfthreaded {
     vkDestroyDescriptorSetLayout( m_device, m_descriptorSetLayout, NULL );
   #endif
 
-    vkDestroyRenderPass(m_device, passes.anim, NULL);
-    vkDestroyFramebuffer(m_device, fbos.anim, NULL);
 
     vkDestroyPipelineLayout( m_device, m_animPipelineLayout, NULL );
     vkDestroyDescriptorSetLayout( m_device, m_animDescriptorSetLayout, NULL );
@@ -694,7 +666,7 @@ namespace csfthreaded {
     attachments[0].samples = samplesUsed;
     attachments[0].loadOp = loadOp;
     attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     attachments[0].flags = 0;
 
@@ -704,7 +676,7 @@ namespace csfthreaded {
     attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachments[1].stencilLoadOp = loadOp;
     attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     attachments[1].flags = 0;
     VkSubpassDescription subpass = {  };
@@ -767,9 +739,9 @@ namespace csfthreaded {
     cbImageInfo.arrayLayers = 1;
     cbImageInfo.samples = samplesUsed;
     cbImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    cbImageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    cbImageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     cbImageInfo.flags = 0;
-    cbImageInfo.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    cbImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     result = vkCreateImage(m_device, &cbImageInfo, NULL, &images.scene_color);
     assert(result == VK_SUCCESS);
@@ -787,7 +759,7 @@ namespace csfthreaded {
     dsImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     dsImageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     dsImageInfo.flags = 0;
-    dsImageInfo.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    dsImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     result = vkCreateImage(m_device, &dsImageInfo, NULL, &images.scene_depthstencil);
     assert(result == VK_SUCCESS);
@@ -804,9 +776,9 @@ namespace csfthreaded {
       resImageInfo.arrayLayers = 1;
       resImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
       resImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      resImageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+      resImageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
       resImageInfo.flags = 0;
-      resImageInfo.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      resImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
       result = vkCreateImage(m_device, &resImageInfo, NULL, &images.scene_color_resolved);
       assert(result == VK_SUCCESS);
@@ -876,6 +848,30 @@ namespace csfthreaded {
     dsImageViewInfo.image = images.scene_depthstencil;
     result = vkCreateImageView(m_device, &dsImageViewInfo, NULL, &views.scene_depthstencil);
     assert(result == VK_SUCCESS);
+    // initial resource transitions
+    {
+      VkCommandBuffer cmd = createTempCmdBuffer();
+
+      cmdImageTransition(cmd, images.scene_color, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_TRANSFER_READ_BIT, 
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+      cmdImageTransition(cmd, images.scene_depthstencil, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, 
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
+      if (msaa) {
+        cmdImageTransition(cmd, images.scene_color_resolved, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT, 
+          VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+      }
+
+      vkEndCommandBuffer(cmd);
+
+      submissionEnqueue(cmd);
+      tempdestroyEnqueue(cmd);
+
+      submissionExecute();
+      synchronize();
+      tempdestroyAll();
+    }
 
     {
       // Create framebuffers
@@ -1284,20 +1280,19 @@ namespace csfthreaded {
   void ResourcesVK::cmdPipelineBarrier(VkCommandBuffer cmd) const
   {
     // color transition
-
-    VkImageSubresourceRange colorRange;
-    memset(&colorRange,0,sizeof(colorRange));
-    colorRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    colorRange.baseMipLevel = 0;
-    colorRange.levelCount = VK_REMAINING_MIP_LEVELS;
-    colorRange.baseArrayLayer = 0;
-    colorRange.layerCount = 1;
-
     {
+      VkImageSubresourceRange colorRange;
+      memset(&colorRange,0,sizeof(colorRange));
+      colorRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      colorRange.baseMipLevel = 0;
+      colorRange.levelCount = VK_REMAINING_MIP_LEVELS;
+      colorRange.baseArrayLayer = 0;
+      colorRange.layerCount = 1;
+
       VkImageMemoryBarrier memBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+      memBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
       memBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-      memBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-      memBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+      memBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
       memBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
       memBarrier.image = images.scene_color;
       memBarrier.subresourceRange = colorRange;
@@ -1307,39 +1302,57 @@ namespace csfthreaded {
 
     // Prepare the depth+stencil for reading.
 
-    VkImageSubresourceRange depthRanges[2];
-    memset(depthRanges,0,sizeof(depthRanges));
-    depthRanges[0].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    depthRanges[0].baseMipLevel = 0;
-    depthRanges[0].levelCount = VK_REMAINING_MIP_LEVELS;
-    depthRanges[0].baseArrayLayer = 0;
-    depthRanges[0].layerCount = 1;
-    depthRanges[1].aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
-    depthRanges[1].baseMipLevel = 0;
-    depthRanges[1].levelCount = VK_REMAINING_MIP_LEVELS;
-    depthRanges[1].baseArrayLayer = 0;
-    depthRanges[1].layerCount = 1;
-
     {
-      VkImageMemoryBarrier memBarriers[2];
-      memset(memBarriers,0,sizeof(memBarriers));
-      memBarriers[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-      memBarriers[0].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-      memBarriers[0].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-      memBarriers[0].newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-      memBarriers[0].image = images.scene_depthstencil;
-      memBarriers[0].subresourceRange = depthRanges[0];
+      VkImageSubresourceRange depthStencilRange;
+      memset(&depthStencilRange,0,sizeof(depthStencilRange));
+      depthStencilRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+      depthStencilRange.baseMipLevel = 0;
+      depthStencilRange.levelCount = VK_REMAINING_MIP_LEVELS;
+      depthStencilRange.baseArrayLayer = 0;
+      depthStencilRange.layerCount = 1;
 
-      memBarriers[1].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-      memBarriers[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-      memBarriers[1].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-      memBarriers[1].newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-      memBarriers[1].image = images.scene_depthstencil;
-      memBarriers[1].subresourceRange = depthRanges[1];
+      VkImageMemoryBarrier memBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+      memBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+      memBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+      memBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+      memBarrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+      memBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+      memBarrier.image = images.scene_depthstencil;
+      memBarrier.subresourceRange = depthStencilRange;
 
       vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_FALSE, 
-        0, NULL, 0, NULL, NV_ARRAYSIZE(memBarriers), memBarriers);
+        0, NULL, 0, NULL, 1, &memBarrier);
     }
+  }
+
+
+  void ResourcesVK::cmdImageTransition( VkCommandBuffer cmd, 
+    VkImage img,
+    VkImageAspectFlags aspects,
+    VkAccessFlags src,
+    VkAccessFlags dst,
+    VkImageLayout oldLayout,
+    VkImageLayout newLayout) const
+  {
+    VkImageSubresourceRange range;
+    memset(&range,0,sizeof(range));
+    range.aspectMask = aspects;
+    range.baseMipLevel = 0;
+    range.levelCount = VK_REMAINING_MIP_LEVELS;
+    range.baseArrayLayer = 0;
+    range.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+    VkImageMemoryBarrier memBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    memBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    memBarrier.dstAccessMask = dst;
+    memBarrier.srcAccessMask = src;
+    memBarrier.oldLayout = oldLayout;
+    memBarrier.newLayout = newLayout;
+    memBarrier.image = img;
+    memBarrier.subresourceRange = range;
+
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_FALSE, 
+      0, NULL, 0, NULL, 1, &memBarrier);
   }
 
   VkCommandBuffer ResourcesVK::createCmdBuffer(VkCommandPool pool, bool singleshot, bool primary, bool secondaryInClear) const
@@ -2120,11 +2133,6 @@ namespace csfthreaded {
 
     vkCmdUpdateBuffer(cmd, buffers.anim, 0, sizeof(AnimationData), (uint32_t*)&global.animUbo);
 
-    VkRenderPassBeginInfo renderPassBeginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-    renderPassBeginInfo.renderPass = passes.anim;
-    renderPassBeginInfo.framebuffer = fbos.anim;
-    vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipes.compute_animation);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_animPipelineLayout, 0, 1, &m_animDescriptorSet, 0, 0);
     vkCmdDispatch( cmd, (m_numMatrices + ANIMATION_WORKGROUPSIZE - 1)/ANIMATION_WORKGROUPSIZE, 1, 1 );
@@ -2137,7 +2145,6 @@ namespace csfthreaded {
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_FALSE, 
       0, NULL, 1, &memBarrier, 0, NULL);
 
-    vkCmdEndRenderPass(cmd);
     vkEndCommandBuffer(cmd);
 
     submissionEnqueue(cmd);

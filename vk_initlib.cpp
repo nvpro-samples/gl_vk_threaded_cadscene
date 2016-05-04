@@ -458,10 +458,10 @@ bool vulkanCreateContext(VkDevice &device, VkPhysicalDevice& physicalDevice,  Vk
   deviceCreateInfo.enabledLayerCount   = physicalDeviceLayerNames.size();
   deviceCreateInfo.ppEnabledLayerNames = physicalDeviceLayerNames.data();
 
-  //VkPhysicalDeviceFeatures  deviceFeatures;
-  //vkGetPhysicalDeviceFeatures( physicalDevice, &deviceFeatures );
-  //deviceFeatures.robustBufferAccess = 0;
-  //deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+  VkPhysicalDeviceFeatures  deviceFeatures;
+  vkGetPhysicalDeviceFeatures( physicalDevice, &deviceFeatures );
+  deviceFeatures.robustBufferAccess = 0;
+  deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
 
   result = vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, &device);
   if (result != VK_SUCCESS) {
