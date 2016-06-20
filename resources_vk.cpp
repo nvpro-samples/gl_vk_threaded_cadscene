@@ -1840,7 +1840,7 @@ namespace csfthreaded {
 
       VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
       allocInfo.descriptorPool = descrPool;
-      allocInfo.setLayoutCount = 1;
+      allocInfo.descriptorSetCount = 1;
       allocInfo.pSetLayouts    = &m_descriptorSetLayout;
 
       result = vkAllocateDescriptorSets(m_device, &allocInfo, &m_descriptorSet);
@@ -1873,7 +1873,7 @@ namespace csfthreaded {
 
       VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
       allocInfo.descriptorPool = descrPool;
-      allocInfo.setLayoutCount = 1;
+      allocInfo.descriptorSetCount = 1;
       allocInfo.pSetLayouts    = &m_descriptorSetLayout;
 
       result = vkAllocateDescriptorSets(m_device, &allocInfo, &m_descriptorSet);
