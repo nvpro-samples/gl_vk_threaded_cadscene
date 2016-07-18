@@ -127,17 +127,20 @@ namespace csfthreaded
 
   private:
 
-    static const int NUM_FRAMES = 4;
-
     struct ShadeCommand {
       std::vector<VkCommandBuffer>     cmdbuffers;
+    };
+
+    struct ThreadCmdPool {
+      VkCommandPool                 m_cmdpool;
+      std::vector<VkCommandBuffer>  m_cmdbuffersAllocated;
     };
 
     struct ThreadJob {
       RendererThreadedVK*         renderer;
       int                         index;
 
-      VkCommandPool                   m_pool[ResourcesVK::MAX_BUFFERED_FRAMES];
+      ThreadCmdPool               m_pool[ResourcesVK::MAX_BUFFERED_FRAMES];
 
       int                         m_frame;
       tthread::condition_variable m_hasWorkCond;
@@ -191,7 +194,7 @@ namespace csfthreaded
     tthread::condition_variable     m_drawMutexCondition;
 
 #if USE_THREADED_SECONDARIES
-    VkCommandBuffer                     m_primary;
+    VkCommandBuffer                 m_primary;
 #endif
 
     static void threadMaster( NVPWindow& window, void* arg  )
@@ -233,7 +236,7 @@ namespace csfthreaded
     void submitShadeCommand_ts( ShadeCommand *sc );
 
     template <ShadeType shadetype, bool sorted>
-    void GenerateCmdBuffers(ShadeCommand& sc, VkCommandPool pool, const DrawItem* NVP_RESTRICT drawItems, size_t num, const ResourcesVK* NVP_RESTRICT res )
+    void GenerateCmdBuffers(ShadeCommand& sc, ThreadCmdPool& pool, const DrawItem* NVP_RESTRICT drawItems, size_t num, const ResourcesVK* NVP_RESTRICT res )
     {
       const CadScene* NVP_RESTRICT scene = m_scene;
       bool solidwire = (shadetype == SHADE_SOLIDWIRE);
@@ -245,14 +248,16 @@ namespace csfthreaded
 
       sc.cmdbuffers.clear();
 
+      // TODO could recycle pool's allocated commandbuffers and not free them
 #if USE_THREADED_SECONDARIES
-      VkCommandBuffer  cmd = res->createCmdBuffer(pool,true,false,true);
+      VkCommandBuffer  cmd = res->createCmdBuffer(pool.m_cmdpool,true,false,true);
 #else
-      VkCommandBuffer  cmd = res->createCmdBuffer(pool,true,true,false);
+      VkCommandBuffer  cmd = res->createCmdBuffer(pool.m_cmdpool,true,true,false);
       res->cmdPipelineBarrier(cmd);
       res->cmdBeginRenderPass(cmd, false);
 #endif
       res->cmdDynamicState(cmd);
+      pool.m_cmdbuffersAllocated.push_back(cmd);
 
       VkPipeline solidPipeline = solidwire ? res->pipes.line_tris : res->pipes.tris;
       VkPipeline nonSolidPipeline = res->pipes.line;
@@ -396,7 +401,7 @@ namespace csfthreaded
       }
     }
 
-    void GenerateCmdBuffers(ShadeCommand& sc, ShadeType shadeType, VkCommandPool pool, const DrawItem* NVP_RESTRICT drawItems, size_t num, const ResourcesVK* NVP_RESTRICT res)
+    void GenerateCmdBuffers(ShadeCommand& sc, ShadeType shadeType, ThreadCmdPool& pool, const DrawItem* NVP_RESTRICT drawItems, size_t num, const ResourcesVK* NVP_RESTRICT res)
     {
       if (res->m_sorted)
       {
@@ -458,10 +463,10 @@ namespace csfthreaded
 
       VkResult result;
       VkCommandPoolCreateInfo cmdPoolInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-      cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+      cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
       cmdPoolInfo.queueFamilyIndex = 0;
       for (int n=0; n < ResourcesVK::MAX_BUFFERED_FRAMES; n++){
-        result = vkCreateCommandPool(res->m_device, &cmdPoolInfo, NULL, &job.m_pool[n]);
+        result = vkCreateCommandPool(res->m_device, &cmdPoolInfo, NULL, &job.m_pool[n].m_cmdpool);
         assert(result == VK_SUCCESS);
       }
 
@@ -501,7 +506,7 @@ namespace csfthreaded
         delete m_jobs[i].m_scs[s];
       }
       for (int n=0; n < ResourcesVK::MAX_BUFFERED_FRAMES; n++){
-        vkDestroyCommandPool(m_resources->m_device, m_jobs[i].m_pool[n], NULL);
+        vkDestroyCommandPool(m_resources->m_device, m_jobs[i].m_pool[n].m_cmdpool, NULL);
       }
     }
 
@@ -550,7 +555,10 @@ namespace csfthreaded
     int subframe = m_frame % ResourcesVK::MAX_BUFFERED_FRAMES;
 
     job.resetFrame();
-    vkResetCommandPool( m_resources->m_device, job.m_pool[ subframe ], 0 );
+    ThreadCmdPool& pool = job.m_pool[ subframe ];
+    vkFreeCommandBuffers( m_resources->m_device, pool.m_cmdpool, (uint)pool.m_cmdbuffersAllocated.size(), pool.m_cmdbuffersAllocated.data());
+    pool.m_cmdbuffersAllocated.clear();
+    vkResetCommandPool( m_resources->m_device, pool.m_cmdpool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT );
     while (getWork_ts(begin,num))
     {
       ShadeCommand* sc = job.getFrameCommand();
