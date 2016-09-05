@@ -1454,11 +1454,12 @@ namespace csfthreaded {
   {
     if (!m_submissions.empty() || fence || (useImageReadSignals && m_submissionWaitForRead) || useImageWriteSignals){
       VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+      VkPipelineStageFlags flags = 0;
       submitInfo.commandBufferCount = m_submissions.size();
       submitInfo.pCommandBuffers = m_submissions.data();
 
       if (useImageReadSignals && m_submissionWaitForRead){
-        VkPipelineStageFlags  flags = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        flags = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores   = &m_semImageRead;
         submitInfo.pWaitDstStageMask = &flags;
