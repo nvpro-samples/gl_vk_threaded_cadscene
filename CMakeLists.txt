@@ -78,12 +78,6 @@ source_group(shaders FILES
 )
 source_group("Source Files" FILES ${SOURCE_FILES})
 
-if(UNIX)
-  set(UNIXLINKLIBS dl pthread)
-else()
-  set(UNIXLINKLIBS)
-endif()
-
 #####################################################################################
 # Linkage
 #
@@ -91,13 +85,11 @@ target_link_libraries(${PROJNAME} optimized
 	${LIBRARIES_OPTIMIZED}
 	${PLATFORM_LIBRARIES}
 	shared_sources
-	${UNIXLINKLIBS}
 )
 target_link_libraries(${PROJNAME} debug
 	${LIBRARIES_DEBUG}
 	${PLATFORM_LIBRARIES}
 	shared_sources
-	${UNIXLINKLIBS}
 )
 
 #####################################################################################
