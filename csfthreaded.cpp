@@ -201,11 +201,14 @@ namespace csfthreaded
   bool Sample::initProgram()
   {
     bool validated(true);
+    ProgManager.addDirectory( sysExePath() );
     ProgManager.addDirectory( std::string(PROJECT_NAME));
     ProgManager.addDirectory( sysExePath() + std::string(PROJECT_RELDIRECTORY));
     ProgManager.addDirectory( std::string(PROJECT_ABSDIRECTORY));
 
     ProgManager.registerInclude("common.h", "common.h");
+
+    ProgManager.m_preprocessOnly = false;
 
     drawRectangleProgram = ProgManager.createProgram(
       ProgramManager::Definition(GL_VERTEX_SHADER,    "#define _VERTEX_ 1\n",    "rectangle.glsl"),

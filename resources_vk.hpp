@@ -60,11 +60,6 @@ namespace csfthreaded {
 
 #define NV_ARRAYSIZE(arr) (sizeof(arr)/sizeof(arr[0]))
 
-
-  extern VkDevice g_vkDevice;
-  extern VkPhysicalDevice g_vkPhysicalDevice;
-
-
   template<class T>
   class NulledVk {
   public:
@@ -78,27 +73,56 @@ namespace csfthreaded {
       NulledVk& operator=(T b) { m_value = b; return *this; }
   };
 
+  bool getMemoryAllocationInfo(const VkMemoryRequirements &memReqs, VkFlags memProps, const VkPhysicalDeviceMemoryProperties  &memoryProperties, VkMemoryAllocateInfo &memInfo);
+  bool appendMemoryAllocationInfo(const VkMemoryRequirements &memReqs, VkFlags memProps, const VkPhysicalDeviceMemoryProperties  &memoryProperties, VkMemoryAllocateInfo &memInfoAppended, VkDeviceSize &offset);
+
   struct NVkPhysical {
-    VkPhysicalDevice                  device;
+    VkPhysicalDevice                  physicalDevice;
     VkPhysicalDeviceMemoryProperties  memoryProperties;
     VkPhysicalDeviceProperties        properties;
     VkPhysicalDeviceFeatures          features;
     std::vector<VkQueueFamilyProperties>  queueProperties;
 
-    void init(VkPhysicalDevice pyhsicalDevice)
+    void init(VkPhysicalDevice physicalDeviceIn)
     {
-      device = pyhsicalDevice;
+      physicalDevice = physicalDeviceIn;
 
-      vkGetPhysicalDeviceProperties(pyhsicalDevice, &properties);
-      vkGetPhysicalDeviceMemoryProperties(pyhsicalDevice, &memoryProperties);
-      vkGetPhysicalDeviceFeatures(pyhsicalDevice, &features);
+      vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+      vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+      vkGetPhysicalDeviceFeatures(physicalDevice, &features);
 
       uint32_t count;
-      vkGetPhysicalDeviceQueueFamilyProperties(pyhsicalDevice, &count, NULL);
+      vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, NULL);
       queueProperties.resize(count);
-      vkGetPhysicalDeviceQueueFamilyProperties(pyhsicalDevice, &count, &queueProperties[0]);
+      vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, &queueProperties[0]);
+    }
+
+
+    bool getOptimalDepthStencilFormat( VkFormat &depthStencilFormat )
+    {
+      VkFormat depthStencilFormats[] = {
+        VK_FORMAT_D24_UNORM_S8_UINT,
+        VK_FORMAT_D32_SFLOAT_S8_UINT,
+        VK_FORMAT_D16_UNORM_S8_UINT,
+      };
+
+      for (size_t i = 0 ; i < NV_ARRAYSIZE(depthStencilFormats); i++)
+      {
+        VkFormat format = depthStencilFormats[i];
+        VkFormatProperties formatProps;
+        vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &formatProps);
+        // Format must support depth stencil attachment for optimal tiling
+        if (formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        {
+          depthStencilFormat = format;
+          return true;
+        }
+      }
+
+      return false;
     }
   };
+
 
 
   class ResourcesVK : public Resources, public nv_helpers::Profiler::GPUInterface
@@ -253,11 +277,11 @@ namespace csfthreaded {
       int               cloneIdx;
     };
 
-    VkDevice                  m_device;
-    NVkPhysical               m_physical;
-
     VkInstance                m_instance;
-    VkPhysicalDevice          m_gpu;
+
+    VkDevice                  m_device;
+    VkPhysicalDevice          m_physicalDevice;
+    NVkPhysical               m_physical;
     VkQueue                   m_queue;
     
     VkPipelineLayout          m_pipelineLayout;
@@ -375,9 +399,9 @@ namespace csfthreaded {
 
     VkCommandBuffer   createCmdBuffer(VkCommandPool pool, bool singleshot, bool primary, bool secondaryInClear) const;
 
-    VkCommandBuffer   createTempCmdBuffer() const
+    VkCommandBuffer   createTempCmdBuffer(bool primary=true, bool secondaryInClear=false) const
     {
-      return createCmdBuffer(m_tempCmdPool, true, true, false);
+      return createCmdBuffer(m_tempCmdPool, true, primary, secondaryInClear);
     }
 
     void      submissionEnqueue(size_t num, const VkCommandBuffer* cmdbuffers)
@@ -394,7 +418,7 @@ namespace csfthreaded {
       m_submissions.push_back(cmdbuffer);
     }
     // perform queue submit
-    void      submissionExecute(VkFence fence=NULL, bool useImageReadSignals=false, bool useImageWriteSignals=false);
+    void      submissionExecute(VkFence fence=NULL, bool useImageReadWait=false, bool useImageWriteSignals=false);
 
     // only for temporary command buffers!
     // puts in list of current frame
@@ -406,8 +430,9 @@ namespace csfthreaded {
 
     void          cmdBeginRenderPass(VkCommandBuffer cmd, bool clear, bool hasSecondary=false) const;
     void          cmdPipelineBarrier(VkCommandBuffer cmd) const;
-    void          cmdDynamicState(VkCommandBuffer cmd) const;
+    void          cmdDynamicState   (VkCommandBuffer cmd) const;
     void          cmdImageTransition(VkCommandBuffer cmd, VkImage img, VkImageAspectFlags aspects, VkAccessFlags src, VkAccessFlags dst, VkImageLayout oldLayout, VkImageLayout newLayout) const;
+    void          cmdBegin(VkCommandBuffer cmd, bool singleshot, bool primary, bool secondaryInClear) const;
   };
 
 }

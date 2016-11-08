@@ -129,7 +129,7 @@ namespace csfthreaded {
 
   bool ResourcesGL::initScene( const CadScene& cadscene)
   {
-    m_numMatrices = cadscene.m_matrices.size();
+    m_numMatrices = (int32_t)cadscene.m_matrices.size();
 
     newBuffer(buffers.scene);
     glNamedBufferStorageEXT(buffers.scene, sizeof(SceneData), NULL, GL_DYNAMIC_STORAGE_BIT);

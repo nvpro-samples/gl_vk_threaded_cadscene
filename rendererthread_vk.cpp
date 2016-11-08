@@ -530,7 +530,7 @@ namespace csfthreaded
   {
     m_drawMutex.lock();
 #if USE_THREADED_SECONDARIES
-    vkCmdExecuteCommands(m_primary, sc->cmdbuffers.size(), sc->cmdbuffers.data());
+    vkCmdExecuteCommands(m_primary, (uint32_t)sc->cmdbuffers.size(), sc->cmdbuffers.data());
 #else
     m_resources->submissionEnqueue(sc->cmdbuffers.size(), sc->cmdbuffers.data());
 #endif
@@ -722,7 +722,7 @@ namespace csfthreaded
           if (sc){
             m_numEnqueues++;
 #if USE_THREADED_SECONDARIES
-            vkCmdExecuteCommands(m_primary, sc->cmdbuffers.size(), &sc->cmdbuffers[0]);
+            vkCmdExecuteCommands(m_primary, (uint32_t)sc->cmdbuffers.size(), &sc->cmdbuffers[0]);
 #else
             res->submissionEnqueue(sc->cmdbuffers.size(), sc->cmdbuffers.data());
 #endif

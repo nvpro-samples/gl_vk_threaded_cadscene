@@ -658,7 +658,7 @@ namespace csfthreaded
             NVP_BARRIER();
             m_numEnqueues++;
             glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
-            glDrawCommandsStatesNV( sc->buffer, &sc->offsets[0], &sc->sizes[0], &sc->states[0], &sc->fbos[0], sc->sizes.size());
+            glDrawCommandsStatesNV(sc->buffer, &sc->offsets[0], &sc->sizes[0], &sc->states[0], &sc->fbos[0], (uint32_t)sc->sizes.size());
           }
           else{
             numTerminated++;

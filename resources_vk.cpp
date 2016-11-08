@@ -51,11 +51,7 @@ namespace csfthreaded {
 
   //////////////////////////////////////////////////////////////////////////
 
-  VkDevice g_vkDevice;
-  VkPhysicalDevice g_vkPhysicalDevice;
-
-
-  static bool  getMemoryAllocationInfo(const VkMemoryRequirements &memReqs, VkFlags memProps, const VkPhysicalDeviceMemoryProperties  &memoryProperties, VkMemoryAllocateInfo &memInfo)
+  bool  getMemoryAllocationInfo(const VkMemoryRequirements &memReqs, VkFlags memProps, const VkPhysicalDeviceMemoryProperties  &memoryProperties, VkMemoryAllocateInfo &memInfo)
   {
     memInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     memInfo.pNext = NULL;
@@ -86,7 +82,7 @@ namespace csfthreaded {
     return true;
   }
 
-  static bool appendMemoryAllocationInfo(const VkMemoryRequirements &memReqs, VkFlags memProps, const VkPhysicalDeviceMemoryProperties  &memoryProperties, VkMemoryAllocateInfo &memInfoAppended, VkDeviceSize &offset)
+  bool appendMemoryAllocationInfo(const VkMemoryRequirements &memReqs, VkFlags memProps, const VkPhysicalDeviceMemoryProperties  &memoryProperties, VkMemoryAllocateInfo &memInfoAppended, VkDeviceSize &offset)
   {
     VkMemoryAllocateInfo memInfo;
     if (!getMemoryAllocationInfo(memReqs, memProps, memoryProperties, memInfo)){
@@ -134,6 +130,68 @@ namespace csfthreaded {
     return VK_SUCCESS;
   }
 
+#define USE_PRESENT_SEMAPHORES 1
+
+
+  void ResourcesVK::submissionExecute(VkFence fence, bool useImageReadWait, bool useImageWriteSignals)
+  {
+    if (!m_submissions.empty() || fence || (useImageReadWait && m_submissionWaitForRead) || useImageWriteSignals){
+      VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+      VkSemaphore           semRead;
+      VkSemaphore           semWritten;
+      VkPipelineStageFlags  flags = 0;
+
+      submitInfo.commandBufferCount = (uint32_t)m_submissions.size();
+      submitInfo.pCommandBuffers = m_submissions.data();
+
+      if (useImageReadWait && m_submissionWaitForRead && USE_PRESENT_SEMAPHORES){
+        flags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        
+        semRead = m_semImageRead;
+        if (semRead){
+          submitInfo.waitSemaphoreCount = 1;
+          submitInfo.pWaitSemaphores   = &semRead;
+          submitInfo.pWaitDstStageMask = &flags;
+        }
+        
+        m_submissionWaitForRead = false;
+      }
+
+      if (useImageWriteSignals && USE_PRESENT_SEMAPHORES){
+        semWritten = m_semImageWritten;
+        if (semWritten){
+          submitInfo.pSignalSemaphores = &semWritten;
+          submitInfo.signalSemaphoreCount = 1;
+        }
+      }
+      vkQueueSubmit(m_queue, 1, &submitInfo, fence);
+
+      m_submissions.clear();
+    }
+  }
+
+  void ResourcesVK::beginFrame()
+  {
+    m_submissionWaitForRead = true;
+  }
+
+  void ResourcesVK::flushFrame()
+  {
+    int current  = m_frame % MAX_BUFFERED_FRAMES;
+    submissionExecute(m_nukemFences[current], true, true);
+  }
+
+  void ResourcesVK::endFrame()
+  {
+    int current  = m_frame % MAX_BUFFERED_FRAMES;
+    int past     = (m_frame + 1) % MAX_BUFFERED_FRAMES;
+
+    if (m_frame < MAX_BUFFERED_FRAMES - 1){
+      return;
+    }
+    tempdestroyPastFrame(past);
+  }
+  
   void ResourcesVK::init()
   {
     VkResult result;
@@ -142,17 +200,26 @@ namespace csfthreaded {
     m_fboIncarnation = 0;
     m_pipeIncarnation = 0;
 
-    if (!vulkanCreateContext(g_vkDevice, g_vkPhysicalDevice, m_instance, "csfthreaded", "csfthreaded")){
+    if (!vulkanCreateContext(m_device, m_physicalDevice, m_instance, "csfthreaded", "csfthreaded")){
       printf("vulkan device create failed (use debug build for more information)\n");
       exit(-1);
       return;
     }
-    m_device = g_vkDevice;
-    m_physical.init(g_vkPhysicalDevice);
+    m_physical.init(m_physicalDevice);
 
     vkGetDeviceQueue(m_device, 0, 0, &m_queue);
     initAlignedSizes((uint32_t)m_physical.properties.limits.minUniformBufferOffsetAlignment);
 
+    {
+      // OpenGL drawing
+      VkSemaphoreCreateInfo semCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+      vkCreateSemaphore(m_device, &semCreateInfo, NULL, &m_semImageRead);
+      vkCreateSemaphore(m_device, &semCreateInfo, NULL, &m_semImageWritten);
+
+      // fire read to ensure queuesubmit never waits
+      glSignalVkSemaphoreNV((GLuint64)m_semImageRead);
+      glFlush();
+    }
     
     // fences
     for (int i = 0; i < MAX_BUFFERED_FRAMES; i++){
@@ -242,7 +309,7 @@ namespace csfthreaded {
       descrPoolInfo.maxSets = 1;
       descrPoolInfo.flags = 0;
       VkDescriptorPool descrPool;
-      result = vkCreateDescriptorPool(g_vkDevice, &descrPoolInfo, NULL, &descrPool);
+      result = vkCreateDescriptorPool(m_device, &descrPoolInfo, NULL, &descrPool);
       assert(result == VK_SUCCESS);
       
       m_animDescriptorPool = descrPool;
@@ -253,7 +320,7 @@ namespace csfthreaded {
       allocInfo.pSetLayouts    = &descriptorSetLayout;
       
       VkDescriptorSet descriptorSet;
-      result = vkAllocateDescriptorSets(g_vkDevice, &allocInfo, &descriptorSet);
+      result = vkAllocateDescriptorSets(m_device, &allocInfo, &descriptorSet);
       assert(result == VK_SUCCESS);
 
       m_animDescriptorSet = descriptorSet;
@@ -454,17 +521,6 @@ namespace csfthreaded {
       
       m_pipelineLayout = pipelineLayout;
     }
-
-    {
-      // OpenGL drawing
-      VkSemaphoreCreateInfo semCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-      vkCreateSemaphore(m_device, &semCreateInfo, NULL, &m_semImageRead);
-      vkCreateSemaphore(m_device, &semCreateInfo, NULL, &m_semImageWritten);
-
-      // fire read to ensure queuesubmit never waits
-      glSignalVkSemaphoreNV((GLuint64)m_semImageRead);
-      glFlush();
-    }
   }
 
   void ResourcesVK::deinit(nv_helpers_gl::ProgramManager &mgr)
@@ -503,10 +559,10 @@ namespace csfthreaded {
     vkDestroySemaphore(m_device, m_semImageRead, NULL);
     vkDestroySemaphore(m_device, m_semImageWritten, NULL);
 
-    vulkanContextCleanup(m_device, m_gpu, m_instance);
+    vulkanContextCleanup(m_device, m_physicalDevice, m_instance);
 
     vkDestroyDevice(m_device, NULL);
-    g_vkDevice = NULL;
+    m_device = NULL;
 
     vkDestroyInstance(m_instance, NULL);
   }
@@ -670,7 +726,10 @@ namespace csfthreaded {
     attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     attachments[0].flags = 0;
 
-    attachments[1].format = VK_FORMAT_D24_UNORM_S8_UINT;
+    VkFormat depthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT;
+    m_physical.getOptimalDepthStencilFormat(depthStencilFormat);
+
+    attachments[1].format = depthStencilFormat;
     attachments[1].samples = samplesUsed;
     attachments[1].loadOp = loadOp;
     attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -747,9 +806,12 @@ namespace csfthreaded {
     assert(result == VK_SUCCESS);
 
     // depth stencil
+    VkFormat depthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT;
+    m_physical.getOptimalDepthStencilFormat(depthStencilFormat);
+
     VkImageCreateInfo dsImageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     dsImageInfo.imageType = VK_IMAGE_TYPE_2D;
-    dsImageInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
+    dsImageInfo.format = depthStencilFormat;
     dsImageInfo.extent.width = width;
     dsImageInfo.extent.height = height;
     dsImageInfo.extent.depth = 1;
@@ -1085,13 +1147,13 @@ namespace csfthreaded {
       pipelineInfo.subpass    = 0;
 
       VkPipelineShaderStageCreateInfo stages[2];
-      memset(stages, 0, sizeof stages);
+      memset(stages, 0, sizeof(stages));
       pipelineInfo.stageCount = 2;
       pipelineInfo.pStages = stages;
 
       VkPipelineShaderStageCreateInfo& vsStageInfo = stages[0];
       vsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-      vpStateInfo.pNext = NULL;
+      vsStageInfo.pNext = NULL;
       vsStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
       vsStageInfo.pName = "main";
       vsStageInfo.module = NULL;
@@ -1370,7 +1432,16 @@ namespace csfthreaded {
     result = vkAllocateCommandBuffers(m_device, &cmdInfo, &cmd);
     assert(result == VK_SUCCESS);
 
-    // Record the commands.
+    cmdBegin(cmd, singleshot, primary, secondaryInClear);
+
+    return cmd;
+  }
+
+  void ResourcesVK::cmdBegin(VkCommandBuffer cmd, bool singleshot, bool primary, bool secondaryInClear) const
+  {
+    VkResult result;
+    bool secondary = !primary;
+
     VkCommandBufferInheritanceInfo inheritInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
     if (secondary){
       inheritInfo.renderPass  = secondaryInClear ? passes.sceneClear : passes.scenePreserve;
@@ -1387,34 +1458,6 @@ namespace csfthreaded {
     
     result = vkBeginCommandBuffer(cmd, &beginInfo);
     assert(result == VK_SUCCESS);
-
-    return cmd;
-  }
-
-  void ResourcesVK::beginFrame()
-  {
-    m_submissionWaitForRead = true;
-  }
-
-  void ResourcesVK::flushFrame()
-  {
-    int current  = m_frame % MAX_BUFFERED_FRAMES;
-    submissionExecute(m_nukemFences[current], true, true);
-
-#if 0
-    synchronize();
-#endif
-  }
-
-  void ResourcesVK::endFrame()
-  {
-    int current  = m_frame % MAX_BUFFERED_FRAMES;
-    int past     = (m_frame + 1) % MAX_BUFFERED_FRAMES;
-
-    if (m_frame < MAX_BUFFERED_FRAMES){
-      return;
-    }
-    tempdestroyPastFrame(past);
   }
 
   void ResourcesVK::tempdestroyEnqueue( VkCommandBuffer cmdbuffer )
@@ -1450,31 +1493,7 @@ namespace csfthreaded {
     m_doomedCmdBuffers[past].clear();
   }
 
-  void ResourcesVK::submissionExecute(VkFence fence, bool useImageReadSignals, bool useImageWriteSignals)
-  {
-    if (!m_submissions.empty() || fence || (useImageReadSignals && m_submissionWaitForRead) || useImageWriteSignals){
-      VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-      VkPipelineStageFlags flags = 0;
-      submitInfo.commandBufferCount = m_submissions.size();
-      submitInfo.pCommandBuffers = m_submissions.data();
 
-      if (useImageReadSignals && m_submissionWaitForRead){
-        flags = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores   = &m_semImageRead;
-        submitInfo.pWaitDstStageMask = &flags;
-        m_submissionWaitForRead = false;
-      }
-      if (useImageWriteSignals){
-        submitInfo.pSignalSemaphores = &m_semImageWritten;
-        submitInfo.signalSemaphoreCount = 1;
-      }
-
-      vkQueueSubmit(m_queue, 1, &submitInfo, fence);
-
-      m_submissions.clear();
-    }
-  }
 
   size_t ResourcesVK::StagingBuffer::append( size_t sz, const void* data, ResourcesVK& res )
   {
@@ -1527,6 +1546,8 @@ namespace csfthreaded {
 
   VkResult ResourcesVK::fillBuffer( StagingBuffer& staging, VkBuffer buffer, size_t offset, size_t size,  const void* data )
   {
+    if (!size) return VK_SUCCESS;
+
     if (staging.needSync(size)){
       submissionExecute();
       synchronize();
@@ -1859,11 +1880,7 @@ namespace csfthreaded {
       type_counts[UBO_MATERIAL].descriptorCount = 1;
 
       VkDescriptorPool descrPool;
-      VkDescriptorPoolCreateInfo descrPoolInfo;
-      memset(&descrPoolInfo,0,sizeof(descrPoolInfo));
-
-      descrPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-      descrPoolInfo.pNext = NULL;
+      VkDescriptorPoolCreateInfo descrPoolInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
       descrPoolInfo.poolSizeCount = NV_ARRAYSIZE(type_counts);
       descrPoolInfo.pPoolSizes = type_counts;
       descrPoolInfo.maxSets = 1;
@@ -2172,9 +2189,6 @@ namespace csfthreaded {
     submissionEnqueue(cmd);
     tempdestroyEnqueue(cmd);
   }
-
-
-
 }
 
 

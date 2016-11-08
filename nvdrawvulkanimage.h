@@ -26,6 +26,7 @@
 #ifndef NV_VULKANGL_H__
 #define NV_VULKANGL_H__
 
+#include <cstdlib>
 #include <GL/glew.h>
 #include <vulkan/vulkan.h>
 

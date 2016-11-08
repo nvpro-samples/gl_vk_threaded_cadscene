@@ -325,7 +325,7 @@ std::vector<std::string> requestedExtensions(bool global)
   }
   else
   {
-    extensions.push_back("VK_NV_glsl_shader");
+    extensions.push_back(VK_NV_GLSL_SHADER_EXTENSION_NAME);
   }
 
   return extensions;
@@ -402,10 +402,10 @@ bool vulkanCreateContext(VkDevice &device, VkPhysicalDevice& physicalDevice,  Vk
   VkInstanceCreateInfo instanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
   instanceCreateInfo.pApplicationInfo = &applicationInfo;
 
-  instanceCreateInfo.enabledExtensionCount   = globalExtensionNames.size();
+  instanceCreateInfo.enabledExtensionCount = (uint32_t)globalExtensionNames.size();
   instanceCreateInfo.ppEnabledExtensionNames = globalExtensionNames.data();
 
-  instanceCreateInfo.enabledLayerCount   = globalLayerNames.size();
+  instanceCreateInfo.enabledLayerCount = (uint32_t)globalLayerNames.size();
   instanceCreateInfo.ppEnabledLayerNames = globalLayerNames.data();
 
 
@@ -418,23 +418,69 @@ bool vulkanCreateContext(VkDevice &device, VkPhysicalDevice& physicalDevice,  Vk
     initDebugCallback(instance);
   }
 
-  uint32_t physicalDeviceCount = 1;
-  result = vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, &physicalDevice);
-  if (result != VK_SUCCESS && result != VK_INCOMPLETE) {
+  uint32_t physicalDeviceCount = 0;
+  result = vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, NULL);
+
+  if (result != VK_SUCCESS) {
     return false;
   }
 
+  if (physicalDeviceCount == 0) {
+      LOGW("could not find Vulkan device")
+      return false;
+  }
+  
+  std::vector<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
+  result = vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices.data());
+  if (result != VK_SUCCESS) {
+      return false;
+  }
+
+  // pick first device
+  physicalDevice = physicalDevices[0]; 
 
 
+  std::vector<VkDeviceQueueCreateInfo>  queues;
+  std::vector<float>                    priorites;
+  
 
-  VkDeviceQueueCreateInfo queueCreateInfo;
-  memset(&queueCreateInfo, 0, sizeof(queueCreateInfo));
-  queueCreateInfo.queueFamilyIndex = 0;
-  queueCreateInfo.queueCount = 1;
+  uint32_t queueFamilyGraphicsCompute = ~0u;
+  {
+      uint32_t queueFamilyPropertiesCount = 0;
+      vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyPropertiesCount, NULL);
 
+      std::vector<VkQueueFamilyProperties> queueFamilyProperties(queueFamilyPropertiesCount);
+      vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyPropertiesCount, queueFamilyProperties.data());
+
+      for (uint32_t i = 0; i < queueFamilyProperties.size(); ++i) {
+          if (queueFamilyProperties[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) {
+              queueFamilyGraphicsCompute = i;
+          }
+          if (queueFamilyProperties[i].queueCount > priorites.size()){
+            priorites.resize(queueFamilyProperties[i].queueCount, 1.0f);
+          }
+      }
+
+      for (uint32_t i = 0; i < queueFamilyProperties.size(); ++i) {
+        VkDeviceQueueCreateInfo queueInfo = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
+        queueInfo.queueFamilyIndex = i;
+        queueInfo.queueCount = queueFamilyProperties[i].queueCount;
+        queueInfo.pQueuePriorities = priorites.data();
+
+        queues.push_back(queueInfo);
+      }
+  }
+
+  if (queueFamilyGraphicsCompute == ~0u) {
+      LOGW("could not find queue that supports graphics and compute")
+          return false;
+  }
+
+
+  // allow all queues
   VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-  deviceCreateInfo.queueCreateInfoCount = 1;
-  deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+  deviceCreateInfo.queueCreateInfoCount = (uint32_t)queues.size();
+  deviceCreateInfo.pQueueCreateInfos = queues.data();
 
   // physical device layers and extensions
   const vector<VkLayerProperties> physicalDeviceLayerProperties = GetPhysicalDeviceLayerProperties(physicalDevice);
@@ -452,10 +498,10 @@ bool vulkanCreateContext(VkDevice &device, VkPhysicalDevice& physicalDevice,  Vk
   for (size_t i = 0; i < physicalDeviceExtensionsToEnable.size(); ++i)
     physicalDeviceExtensionNames.push_back(physicalDeviceExtensionsToEnable[i].c_str());
 
-  deviceCreateInfo.enabledExtensionCount   = physicalDeviceExtensionNames.size();
+  deviceCreateInfo.enabledExtensionCount = (uint32_t)physicalDeviceExtensionNames.size();
   deviceCreateInfo.ppEnabledExtensionNames = physicalDeviceExtensionNames.data();
 
-  deviceCreateInfo.enabledLayerCount   = physicalDeviceLayerNames.size();
+  deviceCreateInfo.enabledLayerCount = (uint32_t)physicalDeviceLayerNames.size();
   deviceCreateInfo.ppEnabledLayerNames = physicalDeviceLayerNames.data();
 
   VkPhysicalDeviceFeatures  deviceFeatures;
@@ -470,5 +516,65 @@ bool vulkanCreateContext(VkDevice &device, VkPhysicalDevice& physicalDevice,  Vk
 
   return true;
 }
+
+
+bool vulkanIsExtensionSupported(const char* name)
+{
+  VkResult result;
+
+  VkInstance instance;
+  VkInstanceCreateInfo instanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+
+
+  result = vkCreateInstance(&instanceCreateInfo, NULL, &instance);
+  if (result != VK_SUCCESS) {
+    return false;
+  }
+
+  uint32_t physicalDeviceCount = 0;
+  result = vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, NULL);
+
+  if (result != VK_SUCCESS || physicalDeviceCount == 0) {
+    return false;
+  }
+
+  std::vector<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
+  result = vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices.data());
+  if (result != VK_SUCCESS) {
+    vkDestroyInstance(instance, NULL);
+    return false;
+  }
+
+  // pick first device
+  VkPhysicalDevice physicalDevice = physicalDevices[0];
+
+  uint32_t count = 0;
+  result = vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &count, NULL);
+  if (result != VK_SUCCESS) {
+    vkDestroyInstance(instance, NULL);
+    return false;
+  }
+
+  std::vector<VkExtensionProperties> extensions(count);
+  result = vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &count, extensions.data());
+  if (result != VK_SUCCESS) {
+    vkDestroyInstance(instance, NULL);
+    return false;
+  }
+  
+  bool found = false;
+
+  for (uint32_t i = 0; i < count; i++){
+    if (strcmp(extensions[i].extensionName, name) == 0){
+      found = true;
+      break;
+    }
+  }
+
+  vkDestroyInstance(instance, NULL);
+
+  return found;
+}
+
 #endif
 
