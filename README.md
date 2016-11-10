@@ -98,6 +98,14 @@ Each thread has FRAMES many CommandBufferPools, which are cycled through. At the
 - **vk MT cmd main process**
 Same as above just that the command-buffers are passed to main thread for submission/addition to the primary command-buffer.
 
+If the driver supports the new "VK_NVX_device_generated_commands" extension, you will see additional renderers
+
+- **vk generate cmd reset**
+- **vk generate cmd re-use**
+- **vk generate cmd re-use seqidx**
+
+There is more information about these renderers and the extension in this [document](doc/vulkan_nvxdevicegenerated.md).
+
 #### Uniform Handling in Vulkan
 
 The sample allows to feed the material and matrix data in various ways to Vulkan by changing the ```UNIFORMS_TECHNIQUE``` define. Please find much more detailed information [here](doc/vulkan_uniforms.md).

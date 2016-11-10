@@ -28,6 +28,7 @@
 #include "nvdrawvulkanimage.h"
 
 #include <vulkan/vulkan.h>
+#include "vk_nvx_device_generated_commands.h"
 
 #if VK_EXT_debug_report && defined(_DEBUG)
 
@@ -326,6 +327,7 @@ std::vector<std::string> requestedExtensions(bool global)
   else
   {
     extensions.push_back(VK_NV_GLSL_SHADER_EXTENSION_NAME);
+    extensions.push_back(VK_NVX_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME);
   }
 
   return extensions;
