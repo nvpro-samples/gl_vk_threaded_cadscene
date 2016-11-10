@@ -4,7 +4,7 @@ In this document we discuss the additions to the sample to showcase the **VK_NVX
 
 ## Highlighted Files
 
-* vk_nvx_device_generated_commands.h/cpp: contains the additions to the Vulkan api, as well as some very basic comments. At the time of the release of this sample the official [extension spec integration](https://www.khronos.org/registry/vulkan/specs/1.0-extensions/xhtml/vkspec.html), was not ready yet, but should be public soon.
+* vk_nvx_device_generated_commands.h/cpp: contains the additions to the Vulkan api, as well as some very basic comments. At the time of the release of this sample the official [extension spec integration](https://www.khronos.org/registry/vulkan/specs/1.0-extensions/xhtml/vkspec.html), was not ready yet, but should be public soon. Therefore some values used in the provided header may actually change until the driver release.
 * renderer_vkgen.cpp: contains the new renderers
 * resources_vkgen.cpp/hpp: contains the additions to resources handling
 
@@ -44,7 +44,6 @@ typedef struct VkIndirectCommandsLayoutTokenNVX {
   // how the data stream is accessed per sequence: tokendata[ sequence/divisor ]
   uint32_t                        divisor;
 } VkIndirectCommandsLayoutTokenNVX;
-
 typedef struct VkIndirectCommandsLayoutCreateInfoNVX {
   VkStructureType                             sType;
   const void*                                 pNext;
@@ -227,7 +226,7 @@ vkCmdProcessCommands(vkCommandBuffer commandBuffer, const VkCmdProcessCommandsIn
 
 ## Renderers
 
-All renderers make use of the separate generation and execution model that the extension provides. The motivation is that we can recycle command buffer memory easier. The command buffer
+All renderers make use of the separate generation and execution model that the extension provides. The motivation is that we can recycle command buffer memory easier.
 
 Be aware while the main goal of the extension is to do work reduction on the GPU (culling etc.), this sample is kept rather simple and renders from a static scene description.
 
