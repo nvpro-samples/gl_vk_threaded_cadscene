@@ -245,9 +245,13 @@ In `ResourcesVKGen::initScene` you will see that after the regular scene data in
 
 Ideally be as accurate as possible, as the more objects you will use, the more memory we need to allocate internally.
 
+The Vulkan objects that the table references must be kept alive, just as if they were used directly in both generating or equivalent target command buffer. You can re-use indices in the table, when the command buffers that indirectly reference the object have completed execution on the device. If you are not modifying indices that are inflight, it is safe to register or unregister other indices.
+
 #### IndirectCommandsLayout
 
 In `RendererVKGen::InitGenerator` we are setting up the command sequence (one `VkIndirectCommandsLayoutTokenNVX` for each command in the sequence).
+
+The object lifetime must be handled just like any other vulkan object referenced in command buffers.
 
 #### IndirectCommandsToken
 
