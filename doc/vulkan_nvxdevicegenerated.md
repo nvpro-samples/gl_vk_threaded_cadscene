@@ -236,12 +236,13 @@ The command buffer in which the commands are recorded is reset every frame. To a
 - **vk generate cmd re-use**
 The command buffer is re-used completely, we only reserve the space once and keep re-using a single command buffer every frame. 
 - **vk generate cmd re-use seqidx**
+Similar to the above case, but we provide our own (random) ordering of the drawcalls, by using the functionality provided by the `VK_INDIRECT_COMMANDS_LAYOUT_USAGE_INDEXED_SEQUENCES_NVX` flag.
 
 ## Setup
 
 #### ObjectTable
 
-In `ResourcesVKGen::initScene( const CadScene&scene )` you will see that after the regular scene data initialization (vertex buffers, memory etc.), we now create the object table in which we register all resources that we later want to use in the device generation process.
+In `ResourcesVKGen::initScene` you will see that after the regular scene data initialization (vertex buffers, memory etc.), we now create the object table in which we register all resources that we later want to use in the device generation process.
 
 Ideally be as accurate as possible, as the more objects you will use, the more memory we need to allocate internally.
 
