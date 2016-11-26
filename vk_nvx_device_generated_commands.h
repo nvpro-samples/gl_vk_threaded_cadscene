@@ -61,6 +61,9 @@ VK_DEFINE_NON_DISPATCHABLE_HANDLE(VkIndirectCommandsLayoutNVX)
 
 #define VK_PIPELINE_STAGE_COMMAND_PROCESS_BIT_NVX                         ((VkPipelineStageFlagBits)0x00020000)
 
+#define VK_ACCESS_COMMAND_PROCESS_READ_BIT_NVX                            ((VkAccessFlagBits)0x00020000)
+#define VK_ACCESS_COMMAND_PROCESS_WRITE_BIT_NVX                           ((VkAccessFlagBits)0x00040000)
+
 enum VkIndirectCommandsLayoutUsageFlagBitsNVX {
   VK_INDIRECT_COMMANDS_LAYOUT_USAGE_UNORDERED_SEQUENCES_BIT_NVX = 0x00000001,  // sequences can be processed in implementation dependent order
   VK_INDIRECT_COMMANDS_LAYOUT_USAGE_SPARSE_SEQUENCES_BIT_NVX    = 0x00000002,  // likely generated with a high difference in actual sequencesCount and maxSequencesCount

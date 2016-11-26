@@ -638,6 +638,13 @@ namespace csfthreaded
     // had completed.
     // Similar applies, if were modifying the input buffers, appropriate barriers would have to
     // be set here.
+    //
+    // vkCmdPipelineBarrier(primary, whateverModifiedInputs, VK_PIPELINE_STAGE_COMMAND_PROCESS_BIT_NVX,  ...);
+    //  barrier.dstAccessMask = VK_ACCESS_COMMAND_PROCESS_READ_BIT_NVX;
+    //
+    // It is not required in this sample, as the blitting synchronizes each frame, and we 
+    // do not actually modify the input tokens dynamically.
+    //
     vkCmdProcessCommandsNVX(primary, &info );
     vkEndCommandBuffer(primary);
 
@@ -668,7 +675,10 @@ namespace csfthreaded
       res->cmdBeginRenderPass(primary, true, true);
       if (m_targetCommandBuffer){
         // we need to ensure the processing of commands has completed, before we can execute them
-        vkCmdPipelineBarrier(primary, VK_PIPELINE_STAGE_COMMAND_PROCESS_BIT_NVX, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 0, NULL);
+        VkMemoryBarrier barrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+        barrier.srcAccessMask = VK_ACCESS_COMMAND_PROCESS_WRITE_BIT_NVX;
+        barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        vkCmdPipelineBarrier(primary, VK_PIPELINE_STAGE_COMMAND_PROCESS_BIT_NVX, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 1, &barrier, 0, NULL, 0, NULL);
         vkCmdExecuteCommands(primary, 1, &m_targetCommandBuffer);
       }
       vkCmdEndRenderPass(primary);

@@ -235,7 +235,7 @@ The command buffer in which the commands are recorded is reset every frame. To a
 - **vk generate cmd re-use**
 The command buffer is re-used completely, we only reserve the space once and keep re-using a single command buffer every frame. 
 - **vk generate cmd re-use seqidx**
-Similar to the above case, but we provide our own (random) ordering of the drawcalls, by using the functionality provided by the `VK_INDIRECT_COMMANDS_LAYOUT_USAGE_INDEXED_SEQUENCES_NVX` flag.
+Similar to the above case, but we provide our own (random) ordering of the drawcalls, by using the functionality provided by the `VK_INDIRECT_COMMANDS_LAYOUT_USAGE_INDEXED_SEQUENCES_NVX` flag. The random ordering for drawcalls creates lots of GPU state changes, which makes it very slow in execution for this particular "worst case" demo. 
 
 ## Setup
 
