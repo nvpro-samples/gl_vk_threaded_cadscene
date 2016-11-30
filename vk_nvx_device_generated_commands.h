@@ -80,6 +80,7 @@ typedef enum VkIndirectCommandsTokenTypeNVX {
   VK_INDIRECT_COMMANDS_TOKEN_PUSH_CONSTANT_NVX,  // an array of (32 bit tableEntry + variable count 32bit values)
   VK_INDIRECT_COMMANDS_TOKEN_DRAW_INDEXED_NVX,   // an array of VkDrawIndexedIndirectCommand
   VK_INDIRECT_COMMANDS_TOKEN_DRAW_NVX,           // an array of VkDrawIndirectCommand
+  VK_INDIRECT_COMMANDS_TOKEN_DISPATCH_NVX,       // an array of VkDispatchIndirectCommand
 } VkIndirectCommandsTokenTypeNVX;
 
 typedef enum VkObjectEntryUsageFlagBitsNVX {
