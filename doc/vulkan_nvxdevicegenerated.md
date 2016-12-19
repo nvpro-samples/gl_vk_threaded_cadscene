@@ -4,7 +4,7 @@ In this document we discuss the additions to the sample to showcase the **VK_NVX
 
 ## Highlighted Files
 
-* vk_nvx_device_generated_commands.h/cpp: contains the additions to the Vulkan api, as well as some very basic comments. At the time of the release of this sample the official [extension spec integration](https://www.khronos.org/registry/vulkan/specs/1.0-extensions/xhtml/vkspec.html), was not ready yet, but should be public soon. Therefore some values used in the provided header may actually change until the driver release.
+* vk_nvx_device_generated_commands.h/cpp: contains the additions to the Vulkan api, as well as some very basic comments. The official extension spec integration can be found at [khronos](https://www.khronos.org/registry/vulkan/specs/1.0-extensions/xhtml/vkspec.html#VK_NVX_device_generated_commands).
 * renderer_vkgen.cpp: contains the new renderers
 * resources_vkgen.cpp/hpp: contains the additions to resources handling
 
