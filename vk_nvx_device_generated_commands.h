@@ -397,7 +397,7 @@ extern PFN_vkDestroyObjectTableNVX             pfn_vkDestroyObjectTableNVX;
 extern PFN_vkRegisterObjectsNVX                pfn_vkRegisterObjectsNVX;
 extern PFN_vkUnregisterObjectsNVX              pfn_vkUnregisterObjectsNVX;
 
-#if VK_NVX_DEVICE_GENERATED_COMMANDS_LOCAL || VK_NO_PROTOTYPES
+#if VK_NVX_DEVICE_GENERATED_COMMANDS_LOCAL || defined(VK_NO_PROTOTYPES)
 
 inline void vkCmdProcessCommandsNVX(
   VkCommandBuffer                       commandBuffer,

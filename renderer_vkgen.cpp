@@ -474,6 +474,7 @@ namespace csfthreaded
       }
 
       VkIndirectCommandsLayoutCreateInfoNVX genInfo = {VkStructureType( VK_STRUCTURE_TYPE_INDIRECT_COMMANDS_LAYOUT_CREATE_INFO_NVX )};
+      genInfo.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
       genInfo.tokenCount = (uint32_t)inputInfos.size();
       genInfo.pTokens    = inputInfos.data();
       if (false){ // let's preserve order for now, for more stable result (z-flickering...)
