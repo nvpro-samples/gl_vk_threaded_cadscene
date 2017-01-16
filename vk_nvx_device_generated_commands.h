@@ -387,104 +387,56 @@ typedef void(VKAPI_PTR *PFN_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX)(
 
 #endif
 
-extern PFN_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX  pfn_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX;
-extern PFN_vkCmdProcessCommandsNVX             pfn_vkCmdProcessCommandsNVX;
-extern PFN_vkCmdReserveSpaceForCommandsNVX     pfn_vkCmdReserveSpaceForCommandsNVX;
-extern PFN_vkCreateIndirectCommandsLayoutNVX   pfn_vkCreateIndirectCommandsLayoutNVX;
-extern PFN_vkDestroyIndirectCommandsLayoutNVX  pfn_vkDestroyIndirectCommandsLayoutNVX;
-extern PFN_vkCreateObjectTableNVX              pfn_vkCreateObjectTableNVX;
-extern PFN_vkDestroyObjectTableNVX             pfn_vkDestroyObjectTableNVX;
-extern PFN_vkRegisterObjectsNVX                pfn_vkRegisterObjectsNVX;
-extern PFN_vkUnregisterObjectsNVX              pfn_vkUnregisterObjectsNVX;
-
 #if VK_NVX_DEVICE_GENERATED_COMMANDS_LOCAL || defined(VK_NO_PROTOTYPES)
 
-inline void vkCmdProcessCommandsNVX(
-  VkCommandBuffer                       commandBuffer,
-  const VkCmdProcessCommandsInfoNVX*    info)
-{
-  assert(pfn_vkCmdProcessCommandsNVX);
-  pfn_vkCmdProcessCommandsNVX(commandBuffer, info);
-}
+VKAPI_ATTR void VKAPI_CALL vkCmdProcessCommandsNVX(
+    VkCommandBuffer                             commandBuffer,
+    const VkCmdProcessCommandsInfoNVX*          pProcessCommandsInfo );
 
-inline void vkCmdReserveSpaceForCommandsNVX(
-  VkCommandBuffer                             commandBuffer,
-  const VkCmdReserveSpaceForCommandsInfoNVX*  reserveInfo)
-{
-  assert(pfn_vkCmdProcessCommandsNVX);
-  pfn_vkCmdReserveSpaceForCommandsNVX(commandBuffer, reserveInfo);
-}
+VKAPI_ATTR void VKAPI_CALL vkCmdReserveSpaceForCommandsNVX(
+    VkCommandBuffer                             commandBuffer,
+    const VkCmdReserveSpaceForCommandsInfoNVX*  pReserveSpaceInfo );
 
-inline VkResult vkCreateIndirectCommandsLayoutNVX(
-  VkDevice                                      device,
-  const VkIndirectCommandsLayoutCreateInfoNVX*  pCreateInfo,
-  const VkAllocationCallbacks*                  pAllocator,
-  VkIndirectCommandsLayoutNVX*                  pIndirectCommandsLayout)
-{
-  assert(pfn_vkCreateIndirectCommandsLayoutNVX);
-  return pfn_vkCreateIndirectCommandsLayoutNVX(device, pCreateInfo, pAllocator, pIndirectCommandsLayout);
-}
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateIndirectCommandsLayoutNVX(
+    VkDevice                                    device,
+    const VkIndirectCommandsLayoutCreateInfoNVX* pCreateInfo,
+    const VkAllocationCallbacks*                pAllocator,
+    VkIndirectCommandsLayoutNVX*                pIndirectCommandsLayout );
 
-inline void vkDestroyIndirectCommandsLayoutNVX(
-  VkDevice                            device,
-  VkIndirectCommandsLayoutNVX         indirectCommandsLayout,
-  const VkAllocationCallbacks*        pAllocator)
-{
-  assert(pfn_vkDestroyIndirectCommandsLayoutNVX);
-  pfn_vkDestroyIndirectCommandsLayoutNVX(device, indirectCommandsLayout, pAllocator);
-}
+VKAPI_ATTR void VKAPI_CALL vkDestroyIndirectCommandsLayoutNVX(
+    VkDevice                                    device,
+    VkIndirectCommandsLayoutNVX                 indirectCommandsLayout,
+    const VkAllocationCallbacks*                pAllocator );
 
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateObjectTableNVX(
+    VkDevice                                    device,
+    const VkObjectTableCreateInfoNVX*           pCreateInfo,
+    const VkAllocationCallbacks*                pAllocator,
+    VkObjectTableNVX*                           pObjectTable );
 
-inline VkResult vkCreateObjectTableNVX(
-  VkDevice                            device,
-  const VkObjectTableCreateInfoNVX*   pCreateInfo,
-  const VkAllocationCallbacks*        pAllocator,
-  VkObjectTableNVX*                   pObjectTable)
-{
-  assert(pfn_vkCreateObjectTableNVX);
-  return pfn_vkCreateObjectTableNVX(device, pCreateInfo, pAllocator, pObjectTable);
-}
+VKAPI_ATTR void VKAPI_CALL vkDestroyObjectTableNVX(
+    VkDevice                                    device,
+    VkObjectTableNVX                            objectTable,
+    const VkAllocationCallbacks*                pAllocator );
 
-inline void vkDestroyObjectTableNVX(
-  VkDevice                            device,
-  VkObjectTableNVX                    resourceTable,
-  const VkAllocationCallbacks*        pAllocator)
-{
-  assert(pfn_vkDestroyObjectTableNVX);
-  pfn_vkDestroyObjectTableNVX(device, resourceTable, pAllocator);
-}
+VKAPI_ATTR VkResult VKAPI_CALL vkRegisterObjectsNVX(
+    VkDevice                                    device,
+    VkObjectTableNVX                            objectTable,
+    uint32_t                                    objectCount,
+    const VkObjectTableEntryNVX* const*         ppObjectTableEntries,
+    const uint32_t*                             pObjectIndices );
 
-inline VkResult vkRegisterObjectsNVX(
-  VkDevice                              device,
-  VkObjectTableNVX                      objectTable,
-  uint32_t                              objectCount,
-  const VkObjectTableEntryNVX* const*   ppObjectTableEntries,
-  const uint32_t*                       pObjectIndices)
-{
-  assert(pfn_vkRegisterObjectsNVX);
-  return pfn_vkRegisterObjectsNVX(device, objectTable, objectCount, ppObjectTableEntries, pObjectIndices);
-}
+VKAPI_ATTR VkResult VKAPI_CALL vkUnregisterObjectsNVX(
+    VkDevice                                    device,
+    VkObjectTableNVX                            objectTable,
+    uint32_t                                    objectCount,
+    const VkObjectEntryTypeNVX*                 pObjectEntryTypes,
+    const uint32_t*                             pObjectIndices );
 
-inline VkResult vkUnregisterObjectsNVX(
-  VkDevice                              device,
-  VkObjectTableNVX                      objectTable,
-  uint32_t                              objectCount,
-  const VkObjectEntryTypeNVX*           pObjectEntryTypes,
-  const uint32_t*                       pObjectIndices)
-{
-  assert(pfn_vkUnregisterObjectsNVX);
-  return pfn_vkUnregisterObjectsNVX(device, objectTable, objectCount, pObjectEntryTypes, pObjectIndices);
-}
-
-inline void vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX(
-  VkPhysicalDevice                       physicalDevice,
-  VkDeviceGeneratedCommandsFeaturesNVX*  pFeatures,
-  VkDeviceGeneratedCommandsLimitsNVX*    pLimits)
-{
-  assert(pfn_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX);
-  pfn_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX(physicalDevice, pFeatures, pLimits);
-}
-
+VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX(
+    VkPhysicalDevice                            physicalDevice,
+    VkDeviceGeneratedCommandsFeaturesNVX*       pFeatures,
+    VkDeviceGeneratedCommandsLimitsNVX*         pLimits );
 #endif
 
 int load_VK_NVX_device_generated_commands(VkInstance instance, PFN_vkGetInstanceProcAddr getInstanceProcAddr);

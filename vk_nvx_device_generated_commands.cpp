@@ -25,17 +25,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "vk_nvx_device_generated_commands.h"
 
-PFN_vkCmdProcessCommandsNVX            pfn_vkCmdProcessCommandsNVX = 0;
-PFN_vkCmdReserveSpaceForCommandsNVX    pfn_vkCmdReserveSpaceForCommandsNVX = 0;
-PFN_vkCreateIndirectCommandsLayoutNVX  pfn_vkCreateIndirectCommandsLayoutNVX = 0;
-PFN_vkDestroyIndirectCommandsLayoutNVX pfn_vkDestroyIndirectCommandsLayoutNVX = 0;
-PFN_vkCreateObjectTableNVX             pfn_vkCreateObjectTableNVX = 0;
-PFN_vkDestroyObjectTableNVX            pfn_vkDestroyObjectTableNVX = 0;
-PFN_vkRegisterObjectsNVX               pfn_vkRegisterObjectsNVX = 0;
-PFN_vkUnregisterObjectsNVX             pfn_vkUnregisterObjectsNVX = 0;
-PFN_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX  pfn_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX = 0;
+static PFN_vkCmdProcessCommandsNVX            pfn_vkCmdProcessCommandsNVX = 0;
+static PFN_vkCmdReserveSpaceForCommandsNVX    pfn_vkCmdReserveSpaceForCommandsNVX = 0;
+static PFN_vkCreateIndirectCommandsLayoutNVX  pfn_vkCreateIndirectCommandsLayoutNVX = 0;
+static PFN_vkDestroyIndirectCommandsLayoutNVX pfn_vkDestroyIndirectCommandsLayoutNVX = 0;
+static PFN_vkCreateObjectTableNVX             pfn_vkCreateObjectTableNVX = 0;
+static PFN_vkDestroyObjectTableNVX            pfn_vkDestroyObjectTableNVX = 0;
+static PFN_vkRegisterObjectsNVX               pfn_vkRegisterObjectsNVX = 0;
+static PFN_vkUnregisterObjectsNVX             pfn_vkUnregisterObjectsNVX = 0;
+static PFN_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX  pfn_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX = 0;
 
-#if !VK_NVX_DEVICE_GENERATED_COMMANDS_LOCAL && !defined(VK_NO_PROTOTYPES)
 
 VKAPI_ATTR void VKAPI_CALL vkCmdProcessCommandsNVX(
   VkCommandBuffer                       commandBuffer,
@@ -122,9 +121,6 @@ VKAPI_ATTR void VKAPI_CALL  vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX(
   assert( pfn_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX );
   pfn_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX( physicalDevice, pFeatures, pLimits );
 }
-
-#endif
-
 
 static int s_VK_NVX_device_generated_commands = 0;
 static int s_result_VK_NVX_device_generated_commands = 0;
