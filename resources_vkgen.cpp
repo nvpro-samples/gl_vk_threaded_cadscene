@@ -83,10 +83,10 @@ namespace csfthreaded {
 #endif
     };
     VkObjectEntryUsageFlagsNVX resflags[] = {
-      VK_OBJECT_ENTRY_USAGE_FLAG_GRAPHICS_BIT_NVX,
-      VK_OBJECT_ENTRY_USAGE_FLAG_GRAPHICS_BIT_NVX,
-      VK_OBJECT_ENTRY_USAGE_FLAG_GRAPHICS_BIT_NVX,
-      VK_OBJECT_ENTRY_USAGE_FLAG_GRAPHICS_BIT_NVX,
+      VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX,
+      VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX,
+      VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX,
+      VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX,
     };
 
     uint32_t rescounts[] = {
@@ -114,7 +114,7 @@ namespace csfthreaded {
     createInfo.objectCount = NV_ARRAYSIZE(restypes);
     createInfo.pObjectEntryCounts = rescounts;
     createInfo.pObjectEntryTypes = restypes;
-    createInfo.pObjectEntryFlags = resflags;
+    createInfo.pObjectEntryUsageFlags = resflags;
 
     createInfo.maxUniformBuffersPerDescriptor = 1;
     createInfo.maxStorageBuffersPerDescriptor = 0;
@@ -132,8 +132,8 @@ namespace csfthreaded {
     VkObjectTableEntryNVX* resEntry;
 
     {
-      VkObjectTableIndexBufferEntryNVX  iboentry = { VK_OBJECT_ENTRY_INDEX_BUFFER_NVX,  VK_OBJECT_ENTRY_USAGE_FLAG_GRAPHICS_BIT_NVX };
-      VkObjectTableVertexBufferEntryNVX vboentry = { VK_OBJECT_ENTRY_VERTEX_BUFFER_NVX, VK_OBJECT_ENTRY_USAGE_FLAG_GRAPHICS_BIT_NVX };
+      VkObjectTableIndexBufferEntryNVX  iboentry = { VK_OBJECT_ENTRY_INDEX_BUFFER_NVX,  VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX };
+      VkObjectTableVertexBufferEntryNVX vboentry = { VK_OBJECT_ENTRY_VERTEX_BUFFER_NVX, VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX };
 
 #if USE_SINGLE_GEOMETRY_BUFFERS
       {
@@ -166,8 +166,8 @@ namespace csfthreaded {
 
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
     {
-      VkObjectTableDescriptorSetEntryNVX descrentry = { VK_OBJECT_ENTRY_DESCRIPTOR_SET_NVX, VK_OBJECT_ENTRY_USAGE_FLAG_GRAPHICS_BIT_NVX };
-      descrentry.layout = m_pipelineLayout;
+      VkObjectTableDescriptorSetEntryNVX descrentry = { VK_OBJECT_ENTRY_DESCRIPTOR_SET_NVX, VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX };
+      descrentry.pipelineLayout = m_pipelineLayout;
       resEntry = (VkObjectTableEntryNVX*)&descrentry;
 
       resIndex = 0;
@@ -184,8 +184,8 @@ namespace csfthreaded {
     }
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
     {
-      VkObjectTableDescriptorSetEntryNVX descrentry = { VK_OBJECT_ENTRY_DESCRIPTOR_SET_NVX, VK_OBJECT_ENTRY_USAGE_FLAG_GRAPHICS_BIT_NVX };
-      descrentry.layout = m_pipelineLayout;
+      VkObjectTableDescriptorSetEntryNVX descrentry = { VK_OBJECT_ENTRY_DESCRIPTOR_SET_NVX, VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX };
+      descrentry.pipelineLayout = m_pipelineLayout;
       resEntry = (VkObjectTableEntryNVX*)&descrentry;
 
       for (size_t i = 0; i < m_descriptorSetsMatrices.size(); i++){
@@ -208,8 +208,8 @@ namespace csfthreaded {
     }
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
     {
-      VkObjectTablePushConstantEntryNVX pushentry = { VK_OBJECT_ENTRY_PUSH_CONSTANT_NVX, VK_OBJECT_ENTRY_USAGE_FLAG_GRAPHICS_BIT_NVX };
-      pushentry.layout = m_pipelineLayout;
+      VkObjectTablePushConstantEntryNVX pushentry = { VK_OBJECT_ENTRY_PUSH_CONSTANT_NVX, VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX };
+      pushentry.pipelineLayout = m_pipelineLayout;
       resEntry = (VkObjectTableEntryNVX*)&pushentry;
 
       uint32_t resIndex;

@@ -68,7 +68,7 @@ enum VkIndirectCommandsLayoutUsageFlagBitsNVX {
   VK_INDIRECT_COMMANDS_LAYOUT_USAGE_UNORDERED_SEQUENCES_BIT_NVX = 0x00000001,  // sequences can be processed in implementation dependent order
   VK_INDIRECT_COMMANDS_LAYOUT_USAGE_SPARSE_SEQUENCES_BIT_NVX    = 0x00000002,  // likely generated with a high difference in actual sequencesCount and maxSequencesCount
   VK_INDIRECT_COMMANDS_LAYOUT_USAGE_EMPTY_EXECUTIONS_BIT_NVX    = 0x00000004,  // likely to contain many draw calls with instanceCount or vertex/indexCount set to zero.
-  VK_INDIRECT_COMMANDS_LAYOUT_USAGE_INDEXED_SEQUENCES_NVX       = 0x00000008,  // developer provides permutation
+  VK_INDIRECT_COMMANDS_LAYOUT_USAGE_INDEXED_SEQUENCES_BIT_NVX       = 0x00000008,  // developer provides permutation
 };
 typedef VkFlags VkIndirectCommandsLayoutUsageFlagsNVX;
 
@@ -84,8 +84,8 @@ typedef enum VkIndirectCommandsTokenTypeNVX {
 } VkIndirectCommandsTokenTypeNVX;
 
 typedef enum VkObjectEntryUsageFlagBitsNVX {
-  VK_OBJECT_ENTRY_USAGE_FLAG_GRAPHICS_BIT_NVX = 0x00000001,
-  VK_OBJECT_ENTRY_USAGE_FLAG_COMPUTE_BIT_NVX  = 0x00000002,
+  VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX = 0x00000001,
+  VK_OBJECT_ENTRY_USAGE_COMPUTE_BIT_NVX  = 0x00000002,
 } VkObjectEntryUsageFlagBitsNVX;
 typedef VkFlags VkObjectEntryUsageFlagsNVX;
 
@@ -123,7 +123,7 @@ typedef struct VkIndirectCommandsTokenNVX {
 } VkIndirectCommandsTokenNVX;
 
 typedef struct VkIndirectCommandsLayoutTokenNVX {
-  VkIndirectCommandsTokenTypeNVX  type;         // type of this input
+  VkIndirectCommandsTokenTypeNVX  tokenType;    // type of this input
   uint32_t                        bindingUnit;  // binding unit for vertex attribute / descriptor set
   uint32_t                        dynamicCount; // number of variable dynamic values for descriptor set / pushconstants
   uint32_t                        divisor;      // at which rate the array is advanced per element (must be 1 if VK_INDIRECT_COMMANDS_LAYOUT_USAGE_PACKED_TOKENS_NVX set)
@@ -146,7 +146,7 @@ typedef struct VkObjectTableCreateInfoNVX {
   uint32_t                      objectCount;        // number of objects types
   const VkObjectEntryTypeNVX*   pObjectEntryTypes;  // type of each object array
   const uint32_t*               pObjectEntryCounts; // size of the array for each type
-  const VkObjectEntryUsageFlagsNVX*  pObjectEntryFlags;
+  const VkObjectEntryUsageFlagsNVX*  pObjectEntryUsageFlags;
   uint32_t                      maxUniformBuffersPerDescriptor;
   uint32_t                      maxStorageBuffersPerDescriptor;
   uint32_t                      maxStorageImagesPerDescriptor;
@@ -197,7 +197,7 @@ typedef struct VkObjectTablePipelineEntryNVX {
 typedef struct VkObjectTableDescriptorSetEntryNVX {
   VkObjectEntryTypeNVX        sType;
   VkObjectEntryUsageFlagsNVX  flags;
-  VkPipelineLayout            layout;
+  VkPipelineLayout            pipelineLayout;
   VkDescriptorSet             descriptorSet;
 } VkObjectTableDescriptorSetEntryNVX;
 
@@ -217,7 +217,7 @@ typedef struct VkObjectTableIndexBufferEntryNVX {
 typedef struct VkObjectTablePushConstantEntryNVX {
   VkObjectEntryTypeNVX        sType;
   VkObjectEntryUsageFlagsNVX  flags;
-  VkPipelineLayout            layout;
+  VkPipelineLayout            pipelineLayout;
   VkShaderStageFlags          stageFlags;
 } VkObjectTablePushConstantEntryNVX;
 

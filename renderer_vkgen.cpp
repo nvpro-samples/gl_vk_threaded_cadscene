@@ -406,21 +406,21 @@ namespace csfthreaded
 
       if (shadetype == SHADE_SOLIDWIRE)
       {
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_PIPELINE_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_PIPELINE_NVX;
         input.bindingUnit = 0;
         input.dynamicCount = 0;
         input.divisor = 1;
         inputInfos.push_back(input);
       }
       {
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_INDEX_BUFFER_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_INDEX_BUFFER_NVX;
         input.bindingUnit = 0;
         input.dynamicCount = 1;
         input.divisor = 1;
         inputInfos.push_back(input);
       }
       {
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_VERTEX_BUFFER_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_VERTEX_BUFFER_NVX;
         input.bindingUnit = 0;
         input.dynamicCount = 1;
         input.divisor = 1;
@@ -428,37 +428,37 @@ namespace csfthreaded
       }
       {
 #if UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_PUSH_CONSTANT_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_PUSH_CONSTANT_NVX;
         input.bindingUnit = 0;
         input.dynamicCount = 1;
         input.divisor = 1;
         inputInfos.push_back(input);
 
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_PUSH_CONSTANT_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_PUSH_CONSTANT_NVX;
         input.bindingUnit = 1;
         input.dynamicCount = 1;
         input.divisor = 1;
         inputInfos.push_back(input);
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_DESCRIPTOR_SET_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_DESCRIPTOR_SET_NVX;
         input.bindingUnit = UBO_MATRIX;
         input.dynamicCount = 1;
         input.divisor = 1;
         inputInfos.push_back(input);
 
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_DESCRIPTOR_SET_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_DESCRIPTOR_SET_NVX;
         input.bindingUnit = UBO_MATERIAL;
         input.dynamicCount = 1;
         input.divisor = 1;
         inputInfos.push_back(input);
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_DESCRIPTOR_SET_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_DESCRIPTOR_SET_NVX;
         input.bindingUnit = UBO_MATRIX;
         input.dynamicCount = 0;
         input.divisor = 1;
         inputInfos.push_back(input);
 
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_DESCRIPTOR_SET_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_DESCRIPTOR_SET_NVX;
         input.bindingUnit = UBO_MATERIAL;
         input.dynamicCount = 0;
         input.divisor = 1;
@@ -466,7 +466,7 @@ namespace csfthreaded
 #endif
       }
       {
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_DRAW_INDEXED_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_DRAW_INDEXED_NVX;
         input.bindingUnit = 0;
         input.dynamicCount = 0;
         input.divisor = 1;
@@ -480,7 +480,7 @@ namespace csfthreaded
         genInfo.flags |= VK_INDIRECT_COMMANDS_LAYOUT_USAGE_UNORDERED_SEQUENCES_BIT_NVX;
       }
       if (m_mode == MODE_REUSE_IDXSEQ){
-        genInfo.flags |= VK_INDIRECT_COMMANDS_LAYOUT_USAGE_INDEXED_SEQUENCES_NVX;
+        genInfo.flags |= VK_INDIRECT_COMMANDS_LAYOUT_USAGE_INDEXED_SEQUENCES_BIT_NVX;
       }
 
       VkResult result;
