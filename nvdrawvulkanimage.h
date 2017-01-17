@@ -30,6 +30,9 @@
 #include <GL/glew.h>
 #include <vulkan/vulkan.h>
 
+#ifndef GL_NV_draw_vulkan_image
+#define GL_NV_draw_vulkan_image 1
+
 #  if defined(__MINGW32__) || defined(__CYGWIN__)
 #    define GLEXT_APIENTRY __stdcall
 #  elif (_MSC_VER >= 800) || defined(_STDCALL_SUPPORTED) || defined(__BORLANDC__)
@@ -72,8 +75,9 @@ inline void glDrawVkImageNV (GLuint64 vkImage, GLuint sampler, GLfloat x0, GLflo
   __nvkglDrawVkImageNV(vkImage, sampler, x0, y0, x1, y1, z, s0, t0, s1, t1);
 }
 
-typedef void (*NVKGLPROC)(void);
-int init_NV_draw_vulkan_image(NVKGLPROC (*fnGetProc)(const char* name));
+#endif
+
+int init_NV_draw_vulkan_image(void (*fnGetProc(const char *name))() );
 
 
 #endif

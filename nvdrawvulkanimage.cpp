@@ -23,6 +23,13 @@
 
 #include "nvdrawvulkanimage.h"
 
+#ifdef GLEW_NV_draw_vulkan_image
+int init_NV_draw_vulkan_image(void (*fnGetProc(const char *name))())
+{
+  return GLEW_NV_draw_vulkan_image != 0;
+}
+#else
+
 PFN_glGetVkProcAddrNV           __nvkglGetVkProcAddrNV = 0;
 PFN_glWaitVkSemaphoreNV         __nvkglWaitVkSemaphoreNV = 0;
 PFN_glSignalVkSemaphoreNV       __nvkglSignalVkSemaphoreNV = 0;
@@ -33,7 +40,7 @@ PFN_glDrawVkImageNV             __nvkglDrawVkImageNV = 0;
 static int initedNVdrawvulkanimage = 0;
 static int resultNVdrawvulkanimage = 0;
 
-int init_NV_draw_vulkan_image(NVKGLPROC (*fnGetProc)(const char* name))
+int init_NV_draw_vulkan_image(void (*fnGetProc(const char *name))())
 {
   if (initedNVdrawvulkanimage) return resultNVdrawvulkanimage;
 
@@ -55,3 +62,5 @@ int init_NV_draw_vulkan_image(NVKGLPROC (*fnGetProc)(const char* name))
   resultNVdrawvulkanimage = success;
   return resultNVdrawvulkanimage; 
 }
+
+#endif
