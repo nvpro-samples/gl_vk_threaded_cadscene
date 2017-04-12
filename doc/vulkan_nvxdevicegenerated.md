@@ -297,7 +297,6 @@ Sequence of 5 commands (inherits pipeline and one descriptorset with the scene u
 renderer                    | Build time | Exec time GPU [ms]| 
 --------------------------- | ---------- | ------- |
 vk cmd 1 worker thread      | 3.78 (CPU) |    1.82 |
-                            |            |         |
 vk generate cmd re-use      | 0.20       |    1.75 |
 
 #### Solid with Edges, Material-Grouped, 9 model copies
@@ -316,7 +315,6 @@ Sequence of 6 commands (inherits descriptorset with the scene ubo)
 renderer                    | Build time | Exec time GPU [ms]| 
 --------------------------- | ---------- | -------- |
 vk cmd 1 worker thread      | 8.74 (CPU) |    14.74 |
-                            |            |          |
 vk generate cmd re-use      | 0.34 (GPU) |     8.12 |
 
 Here the execution of the generated commands is faster than a traditional CPU recorded command-buffer.
