@@ -125,16 +125,12 @@ renderer                    | GPU time | CPU time [ms]|
 --------------------------- | -------- | -------- |
 gl core                     |      4.1 |     7.8  |
 gl nvbindless               |      2.7 |     4.7  |
-                            |          |          |
 vk cmd 1 thread             |      1.0 |     1.8  |
 vk cmd 2 threads            |      1.0 |     1.0  |
-                            |          |          |
 gl nvcmd 1 thread           |      1.2 |     0.9  |
 gl nvcmd 2 threads          |      1.2 |     0.6  |
-                            |          |          |
 vk re-use cmd               |      1.0 |     0.03 |
 vk re-use obj-level cmd     |      3.6 |     1.6  |
-                            |          |          |
 gl re-use nvcmd buffer      |      1.0 |     0.05 |
 gl re-use nvcmd compiled    |      1.0 |     0.05 |
 
@@ -150,16 +146,12 @@ renderer                    | GPU time | CPU time  [ms]|
 --------------------------- | -------- | -------- |
 gl core                     |  skewed! |    45.0  |
 gl nvbindless               |  skewed! |    41.0  |
-                            |          |          |
 vk cmd 1 thread             |      3.5 |     1.8  |
 vk cmd 2 threads            |      3.5 |     1.0  |
-                            |          |          |
 gl nvcmd 1 thread           |      3.5 |     1.5  |
 gl nvcmd 2 threads          |      3.5 |     1.5  |
-                            |          |          |
 vk re-use cmd               |      3.4 |     0.6  |
 vk re-use obj-level cmd     |      3.6 |     1.0  |
-                            |          |          |
 gl re-use nvcmd buffer      |      3.0 |     1.1  |
 gl re-use nvcmd compiled    |      2.8 |     0.05 |
 
