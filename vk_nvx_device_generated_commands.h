@@ -73,14 +73,14 @@ enum VkIndirectCommandsLayoutUsageFlagBitsNVX {
 typedef VkFlags VkIndirectCommandsLayoutUsageFlagsNVX;
 
 typedef enum VkIndirectCommandsTokenTypeNVX {
-  VK_INDIRECT_COMMANDS_TOKEN_PIPELINE_NVX,       // an array of 32bit tableEntry in the object table                    
-  VK_INDIRECT_COMMANDS_TOKEN_DESCRIPTOR_SET_NVX, // an array of (32 bit tableEntry + variable count 32bit offsets )
-  VK_INDIRECT_COMMANDS_TOKEN_INDEX_BUFFER_NVX,   // an array of (32 bit tableEntry + optional 32bit offset)
-  VK_INDIRECT_COMMANDS_TOKEN_VERTEX_BUFFER_NVX,  // an array of (32 bit tableEntry + optional 32bit offset)
-  VK_INDIRECT_COMMANDS_TOKEN_PUSH_CONSTANT_NVX,  // an array of (32 bit tableEntry + variable count 32bit values)
-  VK_INDIRECT_COMMANDS_TOKEN_DRAW_INDEXED_NVX,   // an array of VkDrawIndexedIndirectCommand
-  VK_INDIRECT_COMMANDS_TOKEN_DRAW_NVX,           // an array of VkDrawIndirectCommand
-  VK_INDIRECT_COMMANDS_TOKEN_DISPATCH_NVX,       // an array of VkDispatchIndirectCommand
+  VK_INDIRECT_COMMANDS_TOKEN_TYPE_PIPELINE_NVX,       // an array of 32bit tableEntry in the object table                    
+  VK_INDIRECT_COMMANDS_TOKEN_TYPE_DESCRIPTOR_SET_NVX, // an array of (32 bit tableEntry + variable count 32bit offsets )
+  VK_INDIRECT_COMMANDS_TOKEN_TYPE_INDEX_BUFFER_NVX,   // an array of (32 bit tableEntry + optional 32bit offset)
+  VK_INDIRECT_COMMANDS_TOKEN_TYPE_VERTEX_BUFFER_NVX,  // an array of (32 bit tableEntry + optional 32bit offset)
+  VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NVX,  // an array of (32 bit tableEntry + variable count 32bit values)
+  VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_INDEXED_NVX,   // an array of VkDrawIndexedIndirectCommand
+  VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_NVX,           // an array of VkDrawIndirectCommand
+  VK_INDIRECT_COMMANDS_TOKEN_TYPE_DISPATCH_NVX,       // an array of VkDispatchIndirectCommand
 } VkIndirectCommandsTokenTypeNVX;
 
 typedef enum VkObjectEntryUsageFlagBitsNVX {
@@ -90,11 +90,11 @@ typedef enum VkObjectEntryUsageFlagBitsNVX {
 typedef VkFlags VkObjectEntryUsageFlagsNVX;
 
 typedef enum VkObjectEntryTypeNVX {
-  VK_OBJECT_ENTRY_DESCRIPTOR_SET_NVX,
-  VK_OBJECT_ENTRY_PIPELINE_NVX,
-  VK_OBJECT_ENTRY_INDEX_BUFFER_NVX,
-  VK_OBJECT_ENTRY_VERTEX_BUFFER_NVX,
-  VK_OBJECT_ENTRY_PUSH_CONSTANT_NVX,
+  VK_OBJECT_ENTRY_TYPE_DESCRIPTOR_SET_NVX,
+  VK_OBJECT_ENTRY_TYPE_PIPELINE_NVX,
+  VK_OBJECT_ENTRY_TYPE_INDEX_BUFFER_NVX,
+  VK_OBJECT_ENTRY_TYPE_VERTEX_BUFFER_NVX,
+  VK_OBJECT_ENTRY_TYPE_PUSH_CONSTANT_NVX,
 } VkObjectEntryTypeNVX;
 
 typedef struct VkDeviceGeneratedCommandsFeaturesNVX {
@@ -302,7 +302,7 @@ typedef void(VKAPI_PTR *PFN_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX)(
         i       = s / indirectCommandsLayout.pTokens[c].divisor;
 
         switch(input.type){
-          VK_INDIRECT_COMMANDS_TOKEN_PIPELINE_NVX:
+          case VK_INDIRECT_COMMANDS_TOKEN_TYPE_PIPELINE_NVX:
           size_t    stride  = sizeof(uint32_t);
           uint32_t* data    = input.buffer.pointer( input.offset + stride * i );
           uint32_t  object  = data[0];
@@ -311,7 +311,7 @@ typedef void(VKAPI_PTR *PFN_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX)(
             objectTable.pipelines[ object ].pipeline);
           break;
 
-          VK_INDIRECT_COMMANDS_TOKEN_DESCRIPTOR_SET_NVX:
+          case VK_INDIRECT_COMMANDS_TOKEN_TYPE_DESCRIPTOR_SET_NVX:
           size_t    stride  = sizeof(uint32_t) + sizeof(uint32_t) * indirectCommandsLayout.pTokens[c].dynamicCount;
           uint32_t* data    = input.buffer.pointer( input.offset + stride * i);
           uint32_t  object  = data[0];
@@ -323,7 +323,7 @@ typedef void(VKAPI_PTR *PFN_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX)(
             indirectCommandsLayout.pTokens[ c ].dynamicCount, data + 1);
           break;
 
-          VK_INDIRECT_COMMANDS_TOKEN_PUSH_CONSTANT_NVX:
+          case VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NVX:
           size_t    stride  = sizeof(uint32_t) + sizeof(uint32_t) * indirectCommandsLayout.pTokens[c].dynamicCount;
           uint32_t* data    = input.buffer.pointer( input.offset + stride * i );
           uint32_t  object  = data[0];
@@ -334,7 +334,7 @@ typedef void(VKAPI_PTR *PFN_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX)(
             indirectCommandsLayout.pTokens[ c ].bindingUnit, indirectCommandsLayout.pTokens[c].dynamicCount, data + 1);
           break;
 
-          VK_INDIRECT_COMMANDS_TOKEN_INDEX_BUFFER_NVX:
+          case VK_INDIRECT_COMMANDS_TOKEN_TYPE_INDEX_BUFFER_NVX:
           size_t   s tride  = sizeof(uint32_t) + sizeof(uint32_t) * indirectCommandsLayout.pTokens[c].dynamicCount;
           uint32_t* data    = input.buffer.pointer( input.offset + stride * i );
           uint32_t  object  = data[0];
@@ -345,7 +345,7 @@ typedef void(VKAPI_PTR *PFN_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX)(
             objectTable.vertexbuffers[ object ].indexType);
           break;
 
-          VK_INDIRECT_COMMANDS_TOKEN_VERTEX_BUFFER_NVX:
+          case VK_INDIRECT_COMMANDS_TOKEN_TYPE_VERTEX_BUFFER_NVX:
           size_t    stride  = sizeof(uint32_t) + sizeof(uint32_t) * indirectCommandsLayout.pTokens[c].dynamicCount;
           uint32_t* data    = input.buffer.pointer( input.offset + stride * i );
           uint32_t  object  = data[0];
@@ -356,19 +356,19 @@ typedef void(VKAPI_PTR *PFN_vkGetPhysicalDeviceGeneratedCommandsPropertiesNVX)(
             indirectCommandsLayout.pTokens[ c ].dynamicCount ? data + 1 : {0}); // device size handled as uint32_t
           break;
 
-          VK_INDIRECT_COMMANDS_TOKEN_DRAW_INDEXED_NVX:
+          case VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_INDEXED_NVX:
           vkCmdDrawIndexedIndirect(cmd,
             input.buffer,
             sizeof(VkDrawIndexedIndirectCommand) * i + input.offset, 1, 0);
           break;
 
-          VK_INDIRECT_COMMANDS_TOKEN_DRAW_NVX:
+          case VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_NVX:
           vkCmdDrawIndirect(cmd,
             input.buffer,
             sizeof(VkDrawIndirectCommand) * i  + input.offset, 1, 0);
           break;
           
-          VK_INDIRECT_COMMANDS_TOKEN_DISPATCH_NVX:
+          case VK_INDIRECT_COMMANDS_TOKEN_TYPE_DISPATCH_NVX:
           vkCmdDispatchIndirect(cmd,
             input.buffer,
             sizeof(VkDispatchIndirectCommand) * i  + input.offset);
