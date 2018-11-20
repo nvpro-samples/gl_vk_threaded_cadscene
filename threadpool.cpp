@@ -1,34 +1,41 @@
-/*-----------------------------------------------------------------------
-  Copyright (c) 2014-2016, NVIDIA. All rights reserved.
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
-  are met:
-   * Redistributions of source code must retain the above copyright
-     notice, this list of conditions and the following disclaimer.
-   * Neither the name of its contributors may be used to endorse 
-     or promote products derived from this software without specific
-     prior written permission.
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-  PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------*/
+/* Copyright (c) 2014-2018, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
-#include <GL/glew.h>
+#include <platform.h>
 
 #include "threadpool.hpp"
+#include "nv_helpers/nvprint.hpp"
 #include <assert.h>
 
 #define THREADPOOL_TERMINATE_FUNC  ((ThreadPool::WorkerFunc)1)
 
 #if _WIN32
+
+#include <windows.h>
 
 typedef BOOL (WINAPI *LPFN_GLPI)(
   PSYSTEM_LOGICAL_PROCESSOR_INFORMATION, 
@@ -74,7 +81,7 @@ unsigned int ThreadPool::sysGetNumCores()
     "GetLogicalProcessorInformation");
   if (NULL == glpi) 
   {
-    return tthread::thread::hardware_concurrency();
+    return std::thread::hardware_concurrency();
   }
 
   while (!done)
@@ -93,12 +100,12 @@ unsigned int ThreadPool::sysGetNumCores()
 
         if (NULL == buffer) 
         {
-          return tthread::thread::hardware_concurrency();
+          return std::thread::hardware_concurrency();
         }
       } 
       else 
       {
-        return tthread::thread::hardware_concurrency();
+        return std::thread::hardware_concurrency();
       }
     } 
     else
@@ -155,16 +162,16 @@ unsigned int ThreadPool::sysGetNumCores()
   }
 
 #if 0
-  printf(TEXT("\nGetLogicalProcessorInformation results:\n"));
-  printf(TEXT("Number of NUMA nodes: %d\n"), 
+  LOGI(TEXT("\nGetLogicalProcessorInformation results:\n"));
+  LOGI(TEXT("Number of NUMA nodes: %d\n"),
     numaNodeCount);
-  printf(TEXT("Number of physical processor packages: %d\n"), 
+  LOGI(TEXT("Number of physical processor packages: %d\n"),
     processorPackageCount);
-  printf(TEXT("Number of processor cores: %d\n"), 
+  LOGI(TEXT("Number of processor cores: %d\n"),
     processorCoreCount);
-  printf(TEXT("Number of logical processors: %d\n"), 
+  LOGI(TEXT("Number of logical processors: %d\n"),
     logicalProcessorCount);
-  printf(TEXT("Number of processor L1/L2/L3 caches: %d/%d/%d\n"), 
+  LOGI(TEXT("Number of processor L1/L2/L3 caches: %d/%d/%d\n"),
     processorL1CacheCount,
     processorL2CacheCount,
     processorL3CacheCount);
@@ -193,25 +200,10 @@ void ThreadPool::threadKicker( void* arg )
 
 void ThreadPool::threadProcess( ThreadEntry& entry )
 {
-  // create window
-  NVPWindow::ContextFlags flags;
-  flags.core = 0;
-  flags.debug = 0;
-  flags.major = 4;
-  flags.minor = 2;
-  flags.robust = 0;
-  flags.share = entry.m_share;
-
-  bool haswindow = flags.share != THREADPOOL_NO_CONTEXT;
-
   {
-    tthread::lock_guard<tthread::mutex> lock(m_globalMutex);
+    std::unique_lock<std::mutex> lock(m_globalMutex);
 
-    if (haswindow){
-      entry.m_window.activate(16,16,"_dummy",&flags,1);
-    }
-
-    printf("%d created...\n", entry.m_id);
+    LOGI("%d created...\n", entry.m_id);
 
     m_globalInit++;
     m_globalCond.notify_all();
@@ -226,78 +218,59 @@ void ThreadPool::threadProcess( ThreadEntry& entry )
   while (true)
   {
     {
-      tthread::lock_guard<tthread::mutex> lock(entry.m_commMutex);
+      std::unique_lock<std::mutex> lock(entry.m_commMutex);
       while(!entry.m_fn){
-        entry.m_commCond.wait(entry.m_commMutex);
+        entry.m_commCond.wait(lock);
       }
     }
 
     if (entry.m_fn == THREADPOOL_TERMINATE_FUNC) break;
 
-    NVP_BARRIER();
+    NV_BARRIER();
 
-    if (haswindow){
-      glPushAttrib(GL_ALL_ATTRIB_BITS);
-      glPushClientAttrib(GL_CLIENT_ALL_ATTRIB_BITS);
-    }
+    LOGI("%d started job\n", entry.m_id);
 
-    printf("%d started job\n", entry.m_id);
-
-    entry.m_fn(entry.m_window,entry.m_fnArg);
+    entry.m_fn(entry.m_fnArg);
     entry.m_fn = 0;
     
-    if (haswindow){
-      glFinish();
-    }
-
-    printf("%d finished job\n", entry.m_id);
-
-    if (haswindow){
-      glPopAttrib();
-      glPopClientAttrib();
-    }
+    LOGI("%d finished job\n", entry.m_id);
   }
 
-  printf("%d exiting...\n", entry.m_id);
+  LOGI("%d exiting...\n", entry.m_id);
 
   {
-    tthread::lock_guard<tthread::mutex> lock(m_globalMutex);
-    if (haswindow){
-      entry.m_window.deactivate();
-    }
-    printf("%d shutdown\n", entry.m_id);
+    std::unique_lock<std::mutex> lock(m_globalMutex);
+    LOGI("%d shutdown\n", entry.m_id);
   }
   
 }
 
-void ThreadPool::init( unsigned int numThreads, NVPWindow* share)
+void ThreadPool::init( unsigned int numThreads)
 {
   m_numThreads  = numThreads;
   m_globalInit = 0;
-  m_hasSharedContext = share != THREADPOOL_NO_CONTEXT;
 
   m_pool = new ThreadEntry[numThreads];
 
   for (unsigned int i = 0; i < numThreads; i++){
     ThreadEntry& entry = m_pool[i];
-    entry.m_share = share;
     entry.m_id = numThreads - i - 1;
     entry.m_origin = this;
     entry.m_fn = 0;
     entry.m_fnArg = 0;
   }
 
-  NVP_BARRIER();
+  NV_BARRIER();
 
   for (unsigned int i = 0; i < numThreads; i++){
     ThreadEntry& entry = m_pool[i];
-    entry.m_thread = new tthread::thread( threadKicker, &m_pool[i]);
+    entry.m_thread = std::thread( threadKicker, &m_pool[i]);
   }
 
   {
-    tthread::lock_guard<tthread::mutex> lock(m_globalMutex);
+    std::unique_lock<std::mutex> lock(m_globalMutex);
     while (m_globalInit < numThreads){
-      m_globalCond.wait(m_globalMutex);
+      m_globalCond.wait(lock);
     }
   }
 
@@ -309,23 +282,21 @@ void ThreadPool::init( unsigned int numThreads, NVPWindow* share)
 
 void ThreadPool::deinit()
 {
-  NVP_BARRIER();
+  NV_BARRIER();
 
   for (unsigned int i = 0; i < m_numThreads; i++){
     ThreadEntry& entry = m_pool[i];
 
     {
-      tthread::lock_guard<tthread::mutex> lock(entry.m_commMutex);
+      std::unique_lock<std::mutex> lock(entry.m_commMutex);
       entry.m_fn = THREADPOOL_TERMINATE_FUNC;
       entry.m_fnArg = 0;
       entry.m_commCond.notify_all();
     }
 
-    tthread::this_thread::yield();
+    std::this_thread::yield();
 
-    entry.m_thread->join();
-    delete entry.m_thread;
-    entry.m_thread = 0;
+    entry.m_thread.join();
   }
 
   delete [] m_pool;
@@ -342,7 +313,7 @@ void ThreadPool::activateJob( unsigned int tid, WorkerFunc fn, void* arg )
   assert( entry.m_fn == 0 );
 
   {
-    tthread::lock_guard<tthread::mutex> lock(entry.m_commMutex);
+    std::unique_lock<std::mutex> lock(entry.m_commMutex);
     entry.m_fn = fn;
     entry.m_fnArg = arg;
     entry.m_commCond.notify_all();

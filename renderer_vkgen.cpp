@@ -1,27 +1,29 @@
-/*-----------------------------------------------------------------------
-Copyright (c) 2016, NVIDIA. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions
-are met:
-* Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-* Neither the name of its contributors may be used to endorse
-or promote products derived from this software without specific
-prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------*/
+/* Copyright (c) 2016-2018, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
 
 //#undef NDEBUG
@@ -170,14 +172,12 @@ namespace csfthreaded
 
   public:
 
-    void init(const CadScene* NVP_RESTRICT scene, Resources* resources);
+    void init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config);
     void deinit();
     
-    void build(ShadeType shadetype, Resources* NVP_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler, nv_helpers_gl::ProgramManager &progManager);
-    void draw(ShadeType shadetype, Resources* NVP_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler, nv_helpers_gl::ProgramManager &progManager);
-
-    void blit(ShadeType shadeType, Resources* NVP_RESTRICT resources, const Resources::Global& global );
-
+    void build(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler);
+    void draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler);
+    
     RendererVKGen()
     {
 
@@ -198,7 +198,10 @@ namespace csfthreaded
 
       uint32_t                          sequencesCount;
 
-      VkCommandBuffer                   cmdBuffer[ResourcesVK::MAX_BUFFERED_FRAMES];
+      VkCommandBuffer                   cmdBuffer[nv_helpers_vk::MAX_RING_FRAMES];
+
+      size_t                            fboIncarnation;
+      size_t                            pipeIncarnation;
     };
 
     std::vector<DrawItem>               m_drawItems;
@@ -207,16 +210,16 @@ namespace csfthreaded
 
     // used for token or cmdbuffer
     ShadeCommand                        m_shades[NUM_SHADES];
-    ResourcesVKGen* NVP_RESTRICT        m_resources;
+    ResourcesVKGen* NV_RESTRICT        m_resources;
 
-    void setupTarget(ShadeType shadetype, VkCommandBuffer target, ResourcesVKGen* res, uint32_t maxCount);
+    void setupTarget(ShadeCommand &sc, ShadeType shadetype, VkCommandBuffer target, ResourcesVKGen* res, uint32_t maxCount);
 
-    void GenerateIndirectTokenData(ShadeType shadetype, const DrawItem* NVP_RESTRICT drawItems, size_t num,  ResourcesVKGen* NVP_RESTRICT res )
+    void GenerateIndirectTokenData(ShadeType shadetype, const DrawItem* NV_RESTRICT drawItems, size_t num,  ResourcesVKGen* NV_RESTRICT res )
     {
       m_resources->synchronize();
 
       ShadeCommand& sc = m_shades[shadetype];
-      const CadScene* NVP_RESTRICT scene = m_scene;
+      const CadScene* NV_RESTRICT scene = m_scene;
       bool solidwire = (shadetype == SHADE_SOLIDWIRE);
 
       // All token data is uint32_t based
@@ -243,10 +246,10 @@ namespace csfthreaded
 
         {
           indexbuffers.push_back(USE_SINGLE_GEOMETRY_BUFFERS ? 0 : di.geometryIndex );
-          indexbuffers.push_back(glgeo.iboOffset);
+          indexbuffers.push_back(glgeo.ibo.offset);
 
-          vertexbuffers.push_back( USE_SINGLE_GEOMETRY_BUFFERS ? 0 : di.geometryIndex );
-          vertexbuffers.push_back(glgeo.vboOffset);
+          vertexbuffers.push_back(USE_SINGLE_GEOMETRY_BUFFERS ? 0 : di.geometryIndex );
+          vertexbuffers.push_back(glgeo.vbo.offset);
         }
 
       ///////////////////////////////////////////////////////////////////////////////////////////
@@ -332,21 +335,21 @@ namespace csfthreaded
       sc.inputBuffer = m_resources->createBuffer(totalSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
       m_resources->allocMemAndBindBuffer(sc.inputBuffer, sc.inputMemory);
 
-      ResourcesVK::StagingBuffer staging;
-      staging.init(m_resources->m_device);
-      m_resources->fillBuffer(staging, sc.inputBuffer, pipeOffset, sizeof(uint32_t) * pipelines.size(), pipelines.data());
-      m_resources->fillBuffer(staging, sc.inputBuffer, indexbufferOffset, sizeof(uint32_t) * indexbuffers.size(), indexbuffers.data());
-      m_resources->fillBuffer(staging, sc.inputBuffer, vertexbufferOffset, sizeof(uint32_t) * vertexbuffers.size(), vertexbuffers.data());
-      m_resources->fillBuffer(staging, sc.inputBuffer, matrixOffset, sizeof(uint32_t) * matrixsets.size(), matrixsets.data());
-      m_resources->fillBuffer(staging, sc.inputBuffer, materialOffset, sizeof(uint32_t) * materialsets.size(), materialsets.data());
-      m_resources->fillBuffer(staging, sc.inputBuffer, drawOffset, sizeof(VkDrawIndexedIndirectCommand) * draws.size(), draws.data());
-      m_resources->fillBuffer(staging, sc.inputBuffer, indexOffset, sizeof(uint32_t) * permutation.size(), permutation.data());
+      {
+        nv_helpers_vk::BasicStagingBuffer staging;
+        staging.init(m_resources->m_device, &m_resources->m_physical->memoryProperties);
 
-      m_resources->submissionExecute();
-      m_resources->synchronize();
-      m_resources->tempdestroyAll();
-      staging.deinit();
+        m_resources->fillBuffer(staging, sc.inputBuffer, pipeOffset, sizeof(uint32_t) * pipelines.size(), pipelines.data());
+        m_resources->fillBuffer(staging, sc.inputBuffer, indexbufferOffset, sizeof(uint32_t) * indexbuffers.size(), indexbuffers.data());
+        m_resources->fillBuffer(staging, sc.inputBuffer, vertexbufferOffset, sizeof(uint32_t) * vertexbuffers.size(), vertexbuffers.data());
+        m_resources->fillBuffer(staging, sc.inputBuffer, matrixOffset, sizeof(uint32_t) * matrixsets.size(), matrixsets.data());
+        m_resources->fillBuffer(staging, sc.inputBuffer, materialOffset, sizeof(uint32_t) * materialsets.size(), materialsets.data());
+        m_resources->fillBuffer(staging, sc.inputBuffer, drawOffset, sizeof(VkDrawIndexedIndirectCommand) * draws.size(), draws.data());
+        m_resources->fillBuffer(staging, sc.inputBuffer, indexOffset, sizeof(uint32_t) * permutation.size(), permutation.data());
 
+        m_resources->flushStaging(staging);
+        staging.deinit();
+      }
 
       VkIndirectCommandsTokenNVX input;
       input.buffer = sc.inputBuffer;
@@ -504,17 +507,17 @@ namespace csfthreaded
   static RendererVKGen::TypeReuse s_type_cmdbuffergen2_vk;
   static RendererVKGen::TypeReuseSeq s_type_cmdbuffergen3_vk;
 
-  void RendererVKGen::init(const CadScene* NVP_RESTRICT scene, Resources* resources)
+  void RendererVKGen::init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config)
   {
     ResourcesVKGen* res = (ResourcesVKGen*) resources;
     m_scene = scene;
     m_resources = res;
 
-    fillDrawItems(m_drawItems,resources->m_percent, true, true);
+    fillDrawItems(m_drawItems, config, true, true);
 
-    //printf("drawitems: %d\n", uint32_t(m_drawItems.size()));
+    //LOGI("drawitems: %d\n", uint32_t(m_drawItems.size()));
 
-    if (resources->m_sorted){
+    if (config.sorted){
       std::sort(m_drawItems.begin(),m_drawItems.end(),DrawItem_compare_groups);
     }
 
@@ -522,9 +525,9 @@ namespace csfthreaded
       InitGenerator((ShadeType)i, res);
 
       GenerateIndirectTokenData((ShadeType)i, &m_drawItems[0], m_drawItems.size(), res);
-      printf("%d sequence count: %7d\n", i, uint32_t(m_shades[i].sequencesCount));
+      LOGI("%d sequence count: %7d\n", i, uint32_t(m_shades[i].sequencesCount));
     }
-    printf("\n");
+    LOGI("\n");
 
     VkResult result;
     VkCommandPoolCreateInfo cmdPoolInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
@@ -535,7 +538,7 @@ namespace csfthreaded
     if (m_mode == MODE_RESET || m_mode == MODE_RESET_RELEASE) {
       for (int i = 0; i < NUM_SHADES; i++){
         // we will cycle through different pools every frame, to avoid synchronization locks
-        for (int n = 0; n < ResourcesVK::MAX_BUFFERED_FRAMES; n++){
+        for (int n = 0; n < nv_helpers_vk::MAX_RING_FRAMES; n++){
           m_shades[i].cmdBuffer[n] = res->createCmdBuffer(m_cmdPool, true, false, false);
         }
       }
@@ -544,7 +547,7 @@ namespace csfthreaded
       for (int i = 0; i < NUM_SHADES; i++){
         m_shades[i].cmdBuffer[0] = res->createCmdBuffer(m_cmdPool, false, false, false);
         // reserve space only once and re-use the commandbuffer
-        setupTarget((ShadeType)i, m_shades[i].cmdBuffer[0], res, m_shades[i].sequencesCount);
+        setupTarget(m_shades[i], (ShadeType)i, m_shades[i].cmdBuffer[0], res, m_shades[i].sequencesCount);
       }
     }
 
@@ -555,7 +558,7 @@ namespace csfthreaded
   {
     if (m_mode == MODE_RESET || m_mode == MODE_RESET_RELEASE) {
       for (int i = 0; i < NUM_SHADES; i++){
-        vkFreeCommandBuffers(m_resources->m_device, m_cmdPool, ResourcesVK::MAX_BUFFERED_FRAMES, m_shades[i].cmdBuffer);
+        vkFreeCommandBuffers(m_resources->m_device, m_cmdPool, nv_helpers_vk::MAX_RING_FRAMES, m_shades[i].cmdBuffer);
       }
     }
     else if (m_mode == MODE_REUSE || m_mode == MODE_REUSE_IDXSEQ) {
@@ -572,7 +575,7 @@ namespace csfthreaded
     }
   }
 
-  void RendererVKGen::setupTarget(ShadeType shadetype, VkCommandBuffer target, ResourcesVKGen* res, uint32_t maxCount)
+  void RendererVKGen::setupTarget(ShadeCommand &sc, ShadeType shadetype, VkCommandBuffer target, ResourcesVKGen* res, uint32_t maxCount)
   {
     res->cmdDynamicState(target);
 
@@ -580,11 +583,11 @@ namespace csfthreaded
       vkCmdBindPipeline(target, VK_PIPELINE_BIND_POINT_GRAPHICS, res->pipes.tris);
     }
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
-    vkCmdBindDescriptorSets(target, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_pipelineLayout,
-      UBO_SCENE, 1, &res->m_descriptorSet[UBO_SCENE], 0, NULL);
+    vkCmdBindDescriptorSets(target, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
+      UBO_SCENE, 1, res->m_drawing.getSets(UBO_SCENE), 0, NULL);
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
-    vkCmdBindDescriptorSets(target, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_pipelineLayout,
-      UBO_SCENE, 1, &res->m_descriptorSet, 0, NULL);
+    vkCmdBindDescriptorSets(target, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
+      UBO_SCENE, 1, res->m_drawing.getSets(0), 0, NULL);
 #endif
 
     // The previously generated commands will be executed here.
@@ -596,11 +599,14 @@ namespace csfthreaded
     vkCmdReserveSpaceForCommandsNVX(target, &reserveInfo);
 
     vkEndCommandBuffer(target);
+
+    sc.fboIncarnation = res->m_fboIncarnation;
+    sc.pipeIncarnation = res->m_fboIncarnation;
   }
 
-  void RendererVKGen::build(ShadeType shadetype, Resources* NVP_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler, nv_helpers_gl::ProgramManager &progManager)
+  void RendererVKGen::build(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler)
   {
-    const CadScene* NVP_RESTRICT scene = m_scene;
+    const CadScene* NV_RESTRICT scene = m_scene;
     ResourcesVKGen* res = (ResourcesVKGen*)resources;
     ShadeCommand &sc = m_shades[shadetype];
     VkCommandBuffer target;
@@ -609,14 +615,23 @@ namespace csfthreaded
       // For some variants of this renderer we pick a fresh command buffer every frame.
       // Release will cause reallocation of command-buffer space, which is more costly.
       // Without release we will be able to re-use command buffer space from the pool from previous frames.
-      target = sc.cmdBuffer[ res->m_frame % ResourcesVK::MAX_BUFFERED_FRAMES ];
+      target = sc.cmdBuffer[ res->m_ringFences.getCycleIndex() ];
       vkResetCommandBuffer(target, m_mode == MODE_RESET_RELEASE ? VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT : 0);
       res->cmdBegin(target, true, false, false);
-      setupTarget(shadetype, target, res, sc.sequencesCount);
+      setupTarget(sc, shadetype, target, res, sc.sequencesCount);
     }
     else if (m_mode == MODE_REUSE || m_mode == MODE_REUSE_IDXSEQ){
+      
       // even faster is directly re-using the previous frame command-buffer, if our reservation state hasn't changed.
       target = sc.cmdBuffer[0];
+
+      if (sc.pipeIncarnation != res->m_pipeIncarnation ||
+          sc.fboIncarnation  != res->m_fboIncarnation)
+      {
+        vkResetCommandBuffer(target, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+        res->cmdBegin(target, false, false, false);
+        setupTarget(sc, shadetype, target, res, sc.sequencesCount);
+      }
     }
 
     m_targetCommandBuffer = target;
@@ -650,20 +665,19 @@ namespace csfthreaded
     vkEndCommandBuffer(primary);
 
     res->submissionEnqueue(primary);
-    res->tempdestroyEnqueue(primary);
   }
 
-  void RendererVKGen::draw(ShadeType shadetype, Resources* NVP_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler, nv_helpers_gl::ProgramManager &progManager)
+  void RendererVKGen::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler)
   {
     {
       nv_helpers::Profiler::Section _tempTimer(profiler, "Build", resources->getTimerInterface(), false );
-      build(shadetype,resources,global,profiler,progManager);
+      build(shadetype,resources,global,profiler);
     }
 
     {
       nv_helpers::Profiler::Section _tempTimer(profiler, "Exec", resources->getTimerInterface(), false );
 
-      const CadScene* NVP_RESTRICT scene = m_scene;
+      const CadScene* NV_RESTRICT scene = m_scene;
       ResourcesVK* res = (ResourcesVK*)resources;
       ShadeCommand &sc = m_shades[shadetype];
 
@@ -685,50 +699,11 @@ namespace csfthreaded
       vkCmdEndRenderPass(primary);
       vkEndCommandBuffer(primary);
 
-      res->submissionEnqueue(primary);;
-      res->tempdestroyEnqueue(primary);
+      res->submissionEnqueue(primary);
     }
     m_targetCommandBuffer = NULL;
   }
 
-  void RendererVKGen::blit( ShadeType shadeType, Resources* resources, const Resources::Global& global )
-  {
-    ResourcesVK* res = (ResourcesVK*)resources;
-    VkCommandBuffer cmd = res->createTempCmdBuffer();
-
-    res->cmdImageTransition(cmd, res->images.scene_color, VK_IMAGE_ASPECT_COLOR_BIT,
-      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    if (res->m_msaa){
-      VkImageResolve region = {0};
-      region.extent.width  = res->m_width;
-      region.extent.height = res->m_height;
-      region.extent.depth  = 1;
-      region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-      region.dstSubresource.layerCount = 1;
-      region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-      region.srcSubresource.layerCount = 1;
-
-      vkCmdResolveImage(cmd,  res->images.scene_color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 
-                              res->images.scene_color_resolved, VK_IMAGE_LAYOUT_GENERAL,
-                              1, &region);
-    }
-
-    vkEndCommandBuffer(cmd);
-    res->submissionEnqueue(cmd);
-    res->flushFrame();
-
-
-    // blit to gl backbuffer
-    glDisable(GL_DEPTH_TEST);
-    glWaitVkSemaphoreNV((GLuint64)res->m_semImageWritten);
-    glDrawVkImageNV((GLuint64)(VkImage)(res->m_msaa ? res->images.scene_color_resolved : res->images.scene_color), 0,
-      0,0,res->m_width,res->m_height, 0,
-      0,1,1,0);
-    glEnable(GL_DEPTH_TEST);
-    glSignalVkSemaphoreNV((GLuint64)res->m_semImageRead);
-
-    res->tempdestroyEnqueue(cmd);
-  }
 }
 
 

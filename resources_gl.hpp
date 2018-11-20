@@ -1,37 +1,73 @@
-/*-----------------------------------------------------------------------
-  Copyright (c) 2014-2016, NVIDIA. All rights reserved.
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
-  are met:
-   * Redistributions of source code must retain the above copyright
-     notice, this list of conditions and the following disclaimer.
-   * Neither the name of its contributors may be used to endorse 
-     or promote products derived from this software without specific
-     prior written permission.
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-  PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------*/
-/* Contact ckubisch@nvidia.com (Christoph Kubisch) for feedback */
+/* Copyright (c) 2014-2018, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
 #pragma once
 
 #include "resources.hpp"
-#include <nv_helpers_gl/glresources.hpp>
-#include <nv_helpers_gl/profilertimersgl.hpp>
-#include "nvcommandlist.h"
-#include <main.h>
+#include <nv_helpers/tnulled.hpp>
+#include <nv_helpers_gl/base_gl.hpp>
+#include <nv_helpers_gl/profilertimers_gl.hpp>
+#include <nv_helpers_gl/programmanager_gl.hpp>
+
+namespace csfthreaded {
 
 
-namespace csfthreaded {  
+  template <typename T>
+  using TNulled = nv_helpers::TNulled<T>;
+  using GLBuffer = nv_helpers_gl::GLBuffer;
+
+  template<class Theader, class Tcontent, int idname, class Tdef>
+  class Token {
+  public:
+    static const int ID = idname;
+
+    union {
+      Theader   header;
+      Tcontent  cmd;
+    };
+
+    Token() {
+      header = Tdef::s_token_headers[idname];
+    }
+
+    void enqueue(std::string& stream)
+    {
+      std::string item = std::string((const char*)this, sizeof(Token));
+      stream += item;
+    }
+
+    void enqueue(PointerStream &stream)
+    {
+      assert(sizeof(Token) + stream.used <= stream.allocated);
+      memcpy(stream.dataptr + stream.used, this, sizeof(Token));
+      stream.used += sizeof(Token);
+    }
+  };
+
   class ResourcesGL : public Resources 
   {
   public:
@@ -72,68 +108,57 @@ namespace csfthreaded {
       return -1;
     }
 
-    static void         nvtokenGetStats( const void* NVP_RESTRICT stream, size_t streamSize, int stats[GL_TOKENS] );
+    static void         nvtokenGetStats( const void* NV_RESTRICT stream, size_t streamSize, int stats[GL_TOKENS] );
     static const char*  nvtokenCommandToString(GLenum type);
 
 #define UBOSTAGE_VERTEX     (ResourcesGL::s_token_stages[ResourcesGL::NVTOKEN_STAGE_VERTEX])
 #define UBOSTAGE_FRAGMENT   (ResourcesGL::s_token_stages[ResourcesGL::NVTOKEN_STAGE_FRAGMENT])
+
 
     struct {
       nv_helpers_gl::ProgramManager::ProgramID
         draw_object_tris,
         draw_object_line,
         compute_animation;
-    } programids;
+    } m_programids;
 
     struct {
-      Nulled<GLuint>
+      TNulled<GLuint>
         draw_solid,
         draw_line,
         compute_animation;
-    } programs;
+    } m_programs;
 
     struct {
-      Nulled<GLuint>
+      TNulled<GLuint>
         scene;
-    } fbos;
+    } m_fbos;
 
     struct {
-      Nulled<GLuint>
-        scene,
-        anim,
-        materials,
-        matrices,
-        matricesOrig;
-    } buffers;
+      GLBuffer  scene;
+      GLBuffer  anim;
+      GLBuffer  matrices;
+      GLBuffer  matricesOrig;
+      GLBuffer  materials;
+    } m_buffers;
+
 
     struct {
-      GLuint64
-        scene,
-        materials,
-        matrices,
-        matricesOrig;
-    } addresses;
-
-    struct {
-      Nulled<GLuint>
+      TNulled<GLuint>
         scene_color,
         scene_depthstencil;
-    } textures;
+    } m_textures;
 
     struct {
       GLuint
         draw_tris,
         draw_line_tris,
         draw_line;
-    } stateobjects;
+    } m_stateobjects;
 
     struct Geometry {
-      GLuint    vboGL;
-      GLuint    iboGL;
-      GLuint64  vboADDR;
-      GLuint64  iboADDR;
-      GLsizei   vboSize;
-      GLsizei   iboSize;
+      GLBuffer  vbo;
+      GLBuffer  ibo;
       int       cloneIdx;
     };
 
@@ -147,7 +172,11 @@ namespace csfthreaded {
       }
     };
 
-    int       m_numMatrices;
+    nv_helpers_gl::ProgramManager   m_progManager;
+
+    bool  m_useResolve;
+    int   m_width;
+    int   m_height;
 
     std::vector<Geometry> m_geometry;
 
@@ -163,44 +192,36 @@ namespace csfthreaded {
       glFinish();
     }
 
-    void init();
-    void deinit(nv_helpers_gl::ProgramManager &mgr);
+    bool init(NVPWindow *window);
+    void deinit();
     
-    bool initPrograms(nv_helpers_gl::ProgramManager &mgr);
-    void updatedPrograms(nv_helpers_gl::ProgramManager &mgr);
-    void deinitPrograms(nv_helpers_gl::ProgramManager &mgr);
+    bool initPrograms(const std::string& path, const std::string& prepend);
+    void reloadPrograms(const std::string& prepend);
+    void updatedPrograms();
+    void deinitPrograms();
     
-    bool initFramebuffer(int width, int height, int msaa);
+    bool initFramebuffer(int width, int height, int msaa, bool vsync);
     void deinitFramebuffer();
 
     bool initScene(const CadScene&);
     void deinitScene();
 
-    void animation(Global& global);
+    void animation(const Global& global);
     void animationReset();
+
+    void blitFrame(const Global& global);
 
     void rebuildStateObjects() const;
 
     nv_helpers::Profiler::GPUInterface*  getTimerInterface() { return &m_gltimers; }
 
-
-    static void enableVertexFormat(int attrPos, int attrNormal)
-    {
-      glVertexAttribFormat(attrPos,    3,GL_FLOAT,GL_FALSE,offsetof(CadScene::Vertex,position));
-      glVertexAttribFormat(attrNormal, 3,GL_FLOAT,GL_FALSE,offsetof(CadScene::Vertex,normal));
-      glVertexAttribBinding(attrPos,0);
-      glVertexAttribBinding(attrNormal,0);
-      glEnableVertexAttribArray(attrPos);
-      glEnableVertexAttribArray(attrNormal);
-      glBindVertexBuffer(0,0,0,sizeof(CadScene::Vertex));
+    uvec2 storeU64(GLuint64 address) {
+      return uvec2(address & 0xFFFFFFFF, address >> 32);
     }
 
-    static void disableVertexFormat(int attrPos, int attrNormal)
-    {
-      glDisableVertexAttribArray(attrPos);
-      glDisableVertexAttribArray(attrNormal);
-      glBindVertexBuffer(0,0,0,16);
-    }
+    void enableVertexFormat() const;
+
+    void disableVertexFormat() const;
 
     static ResourcesGL* get() {
       static ResourcesGL resGL;

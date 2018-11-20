@@ -1,37 +1,45 @@
-/*-----------------------------------------------------------------------
-  Copyright (c) 2014-2016, NVIDIA. All rights reserved.
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
-  are met:
-   * Redistributions of source code must retain the above copyright
-     notice, this list of conditions and the following disclaimer.
-   * Neither the name of its contributors may be used to endorse 
-     or promote products derived from this software without specific
-     prior written permission.
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-  PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------*/
+/* Copyright (c) 2014-2018, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 /* Contact ckubisch@nvidia.com (Christoph Kubisch) for feedback */
 
+#if HAS_OPENGL
 
 #include <assert.h>
 #include <algorithm>
 #include <queue>
-#include "renderer.hpp"
 #include <main.h>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <fast_mutex.h>
+
+#include <nv_helpers/spin_mutex.hpp>
+
+#include "renderer.hpp"
 #include "resources_gl.hpp"
 
 #include <nv_math/nv_math_glsltypes.h>
@@ -57,7 +65,7 @@ namespace csfthreaded
     {
       bool isAvailable() const
       {
-        return !!init_NV_command_list(NVPWindow::sysGetProcAddress);
+        return !!load_GL_NV_command_list(NVPWindow::sysGetProcAddressGL);
       }
       const char* name() const
       {
@@ -83,11 +91,11 @@ namespace csfthreaded
 
   public:
 
-    void init(const CadScene* NVP_RESTRICT scene, Resources* resources);
+    void init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config);
     void deinit();
-    void draw(ShadeType shadetype, Resources*  NVP_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler, nv_helpers_gl::ProgramManager &progManager);
+    void draw(ShadeType shadetype, Resources*  NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler);
 
-    void blit(ShadeType shadeType, Resources* NVP_RESTRICT resources, const Resources::Global& global );
+    void blit(ShadeType shadeType, Resources* NV_RESTRICT resources, const Resources::Global& global );
 
 
     Mode    m_mode;
@@ -112,7 +120,7 @@ namespace csfthreaded
       GLuint                  buffer;
       size_t                  bufferOffset;
       size_t                  bufferSize;
-      unsigned char* NVP_RESTRICT bufferData;
+      unsigned char* NV_RESTRICT bufferData;
     };
 
     struct ThreadJob {
@@ -123,10 +131,10 @@ namespace csfthreaded
       PointerStream               m_streams[NUM_FRAMES];
       std::string                 m_tokens[NUM_FRAMES];
 
-      int                         m_frame;
-      tthread::condition_variable m_hasWorkCond;
-      tthread::mutex              m_hasWorkMutex;
-      volatile int                m_hasWork;
+      int                           m_frame;
+      std::condition_variable       m_hasWorkCond;
+      std::mutex                    m_hasWorkMutex;
+      volatile int                  m_hasWork;
 
       size_t                      m_scIdx;
       std::vector<ShadeCommand*>  m_scs;
@@ -150,7 +158,7 @@ namespace csfthreaded
     };
 
     std::vector<DrawItem>           m_drawItems;
-    const ResourcesGL* NVP_RESTRICT   m_resources;
+    const ResourcesGL* NV_RESTRICT m_resources;
     int                             m_numThreads;
     ResourcesGL::StateIncarnation   m_state;
 
@@ -166,25 +174,25 @@ namespace csfthreaded
     volatile int                    m_stopThreads;
     volatile size_t                 m_numCurItems;
 
-    tthread::condition_variable     m_readyCond;
-    tthread::mutex                  m_readyMutex;
+    std::condition_variable         m_readyCond;
+    std::mutex                      m_readyMutex;
 
     size_t                          m_numEnqueues;
     std::queue<ShadeCommand*>       m_drawQueue;
 
-    tthread::fast_mutex             m_workMutex;
-    tthread::fast_mutex             m_drawMutex;
+    nv_helpers::spin_mutex           m_workMutex;
+    nv_helpers::spin_mutex           m_drawMutex;
 
-    static void threadMaster( NVPWindow& window, void* arg  )
+    static void threadMaster( void* arg  )
     {
       ThreadJob* job = (ThreadJob*) arg;
-      job->renderer->RunThread( window, job->index );
+      job->renderer->RunThread( job->index );
     }
 
     bool getWork_ts( size_t &start, size_t &num )
     {
+      std::lock_guard<nv_helpers::spin_mutex>  lock(m_workMutex);
       bool hasWork = false;
-      m_workMutex.lock();
 
       const size_t chunkSize = m_workingSet;
       size_t total = m_drawItems.size();
@@ -202,21 +210,19 @@ namespace csfthreaded
         num = 0;
       }
 
-      m_workMutex.unlock();
-
       return hasWork;
     }
 
-    void          RunThread( NVPWindow& window, int index );
+    void          RunThread( int index );
     unsigned int  RunThreadFrame(ShadeType shadetype, ThreadJob& job);
 
     void enqueueShadeCommand_ts( ShadeCommand *sc );
 
 
     template <class T, ShadeType shade, bool sorted>
-    void GenerateTokens(T& stream, ShadeCommand& sc, const DrawItem* NVP_RESTRICT drawItems, size_t numItems, const ResourcesGL* NVP_RESTRICT res )
+    void GenerateTokens(T& stream, ShadeCommand& sc, const DrawItem* NV_RESTRICT drawItems, size_t numItems, const ResourcesGL* NV_RESTRICT res )
     {
-      const CadScene* NVP_RESTRICT scene = m_scene;
+      const CadScene* NV_RESTRICT scene = m_scene;
       int lastMaterial = -1;
       int lastGeometry = -1;
       int lastMatrix   = -1;
@@ -228,12 +234,11 @@ namespace csfthreaded
       sc.states.clear();
 
       size_t begin = stream.size();
-
       {
         ResourcesGL::tokenUbo ubo;
         ubo.cmd.index   = UBO_SCENE;
         ubo.cmd.stage   = UBOSTAGE_VERTEX;
-        ResourcesGL::encodeAddress(&ubo.cmd.addressLo,res->addresses.scene);
+        ResourcesGL::encodeAddress(&ubo.cmd.addressLo,res->m_buffers.scene.bufferADDR);
         ubo.enqueue(stream);
 
         ubo.cmd.stage   = UBOSTAGE_FRAGMENT;
@@ -256,8 +261,8 @@ namespace csfthreaded
         if (shade == SHADE_SOLIDWIRE && di.solid != lastSolid){
           sc.offsets.push_back( begin );
           sc.sizes.  push_back( GLsizei((stream.size()-begin)) );
-          sc.states. push_back( lastSolid ? res->stateobjects.draw_line_tris : res->stateobjects.draw_line );
-          sc.fbos.   push_back( res->fbos.scene );
+          sc.states. push_back( lastSolid ? res->m_stateobjects.draw_line_tris : res->m_stateobjects.draw_line );
+          sc.fbos.   push_back( res->m_fbos.scene );
 
           begin = stream.size();
 
@@ -270,11 +275,11 @@ namespace csfthreaded
 
           ResourcesGL::tokenVbo vbo;
           vbo.cmd.index = 0;
-          ResourcesGL::encodeAddress(&vbo.cmd.addressLo, geogl.vboADDR);
+          ResourcesGL::encodeAddress(&vbo.cmd.addressLo, geogl.vbo.bufferADDR);
           vbo.enqueue(stream);
 
           ResourcesGL::tokenIbo ibo;
-          ResourcesGL::encodeAddress(&ibo.cmd.addressLo, geogl.iboADDR);
+          ResourcesGL::encodeAddress(&ibo.cmd.addressLo, geogl.ibo.bufferADDR);
           ibo.cmd.typeSizeInByte = 4;
           ibo.enqueue(stream);
 
@@ -286,7 +291,7 @@ namespace csfthreaded
           ResourcesGL::tokenUbo ubo;
           ubo.cmd.index   = UBO_MATRIX;
           ubo.cmd.stage   = UBOSTAGE_VERTEX;
-          ResourcesGL::encodeAddress(&ubo.cmd.addressLo, res->addresses.matrices + res->m_alignedMatrixSize * di.matrixIndex);
+          ResourcesGL::encodeAddress(&ubo.cmd.addressLo, res->m_buffers.matrices.bufferADDR + res->m_alignedMatrixSize * di.matrixIndex);
           ubo.enqueue(stream);
 
           lastMatrix = di.matrixIndex;
@@ -297,7 +302,7 @@ namespace csfthreaded
           ResourcesGL::tokenUbo ubo;
           ubo.cmd.index   = UBO_MATERIAL;
           ubo.cmd.stage   = UBOSTAGE_FRAGMENT;
-          ResourcesGL::encodeAddress(&ubo.cmd.addressLo, res->addresses.materials + res->m_alignedMaterialSize * di.materialIndex);
+          ResourcesGL::encodeAddress(&ubo.cmd.addressLo, res->m_buffers.materials.bufferADDR + res->m_alignedMaterialSize * di.materialIndex);
           ubo.enqueue(stream);
 
           lastMaterial = di.materialIndex;
@@ -313,18 +318,18 @@ namespace csfthreaded
       sc.offsets.push_back( begin );
       sc.sizes.  push_back( GLsizei((stream.size()-begin)) );
       if (shade == SHADE_SOLID){
-        sc.states. push_back( res->stateobjects.draw_tris );
+        sc.states. push_back( res->m_stateobjects.draw_tris );
       }
       else{
-        sc.states. push_back( lastSolid ? res->stateobjects.draw_line_tris : res->stateobjects.draw_line );
+        sc.states. push_back( lastSolid ? res->m_stateobjects.draw_line_tris : res->m_stateobjects.draw_line );
       }
-      sc.fbos. push_back( res->fbos.scene );
+      sc.fbos. push_back( res->m_fbos.scene );
 
     }
 
     template <class T>
-    void GenerateTokens(T& stream, ShadeCommand& sc, ShadeType shade, const DrawItem* NVP_RESTRICT drawItems, size_t numItems, const ResourcesGL* NVP_RESTRICT res ){
-      if (res->m_sorted){
+    void GenerateTokens(T& stream, ShadeCommand& sc, ShadeType shade, const DrawItem* NV_RESTRICT drawItems, size_t numItems, const ResourcesGL* NV_RESTRICT res, bool sorted ){
+      if (sorted){
         switch(shade){
         case SHADE_SOLID:
           GenerateTokens<T,SHADE_SOLID,true>(stream,sc,drawItems,numItems,res);
@@ -349,14 +354,14 @@ namespace csfthreaded
 
   static RendererThreadedGLCMD::Type s_uborange;
 
-  void RendererThreadedGLCMD::init(const CadScene* NVP_RESTRICT scene, Resources* resources)
+  void RendererThreadedGLCMD::init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config)
   {
     m_scene = scene;
-    const ResourcesGL* NVP_RESTRICT res = (const ResourcesGL*)resources;
+    const ResourcesGL* NV_RESTRICT res = (const ResourcesGL*)resources;
 
-    fillDrawItems(m_drawItems,resources->m_percent, true, true);
+    fillDrawItems(m_drawItems, config, true, true);
 
-    if (resources->m_sorted){
+    if (config.sorted){
       std::sort(m_drawItems.begin(),m_drawItems.end(),DrawItem_compare_groups);
     }
 
@@ -366,17 +371,17 @@ namespace csfthreaded
     {
       std::string dummy;
       ShadeCommand sc;
-      GenerateTokens<std::string>(dummy,sc,SHADE_SOLIDWIRE,&m_drawItems[0],m_drawItems.size(),res);
+      GenerateTokens<std::string>(dummy,sc,SHADE_SOLIDWIRE,&m_drawItems[0],m_drawItems.size(),res,config.sorted);
       worstCaseSize = (dummy.size()*4)/3;
 
-      printf("buffer size: %d\n",worstCaseSize);
+      LOGI("buffer size: %d\n", uint32_t(worstCaseSize));
     }
 
     res->rebuildStateObjects();
     m_state = res->m_state;
 
     m_resources  = (const ResourcesGL*) resources;
-    m_numThreads = resources->m_threads;
+    m_numThreads = config.threads;
 
     // make jobs
     m_ready = 0;
@@ -397,10 +402,10 @@ namespace csfthreaded
       job.m_frame = 0;
 
       if (m_mode == MODE_BUFFER_PERS){
-        glGenBuffers(NUM_FRAMES,m_jobs[i].m_buffers);
+        glCreateBuffers(NUM_FRAMES,m_jobs[i].m_buffers);
         for (int f = 0; f < NUM_FRAMES; f++){
-          glNamedBufferStorageEXT(job.m_buffers[f],worstCaseSize,0, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_DYNAMIC_STORAGE_BIT);
-          job.m_streams[f].init( glMapNamedBufferRangeEXT(job.m_buffers[f],0,worstCaseSize, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT), worstCaseSize);
+          glNamedBufferStorage(job.m_buffers[f],worstCaseSize,0, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_DYNAMIC_STORAGE_BIT);
+          job.m_streams[f].init( glMapNamedBufferRange(job.m_buffers[f],0,worstCaseSize, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT), worstCaseSize);
         }
       }
 
@@ -415,23 +420,23 @@ namespace csfthreaded
     m_stopThreads = 1;
     m_ready = 0;
 
-    NVP_BARRIER();
+    NV_BARRIER();
     for (int i = 0; i < m_numThreads; i++){
-      tthread::lock_guard<tthread::mutex> lock(m_jobs[i].m_hasWorkMutex);
+      std::unique_lock<std::mutex> lock(m_jobs[i].m_hasWorkMutex);
       m_jobs[i].m_hasWork = m_frame;
       m_jobs[i].m_hasWorkCond.notify_one();
     }
 
-    tthread::this_thread::yield();
+    std::this_thread::yield();
 
     {
-      tthread::lock_guard<tthread::mutex> lock(m_readyMutex);
+     std::unique_lock<std::mutex> lock(m_readyMutex);
       while (m_ready < m_numThreads){
-        m_readyCond.wait(m_readyMutex);
+        m_readyCond.wait(lock);
       }
     }
 
-    NVP_BARRIER();
+    NV_BARRIER();
 
     for (int f = 0; f < NUM_FRAMES; f++)
     {
@@ -461,9 +466,8 @@ namespace csfthreaded
 
   void RendererThreadedGLCMD::enqueueShadeCommand_ts( ShadeCommand *sc )
   {
-    m_drawMutex.lock();
+    std::lock_guard<nv_helpers::spin_mutex>  lock(m_drawMutex);
     m_drawQueue.push(sc);
-    m_drawMutex.unlock();
   }
 
   unsigned int RendererThreadedGLCMD::RunThreadFrame(ShadeType shadetype, ThreadJob& job) 
@@ -490,7 +494,7 @@ namespace csfthreaded
         sc->bufferOffset = job.m_streams[subframe].size();
       }
 
-      GenerateTokens<PointerStream>(job.m_streams[subframe],*sc, shadetype, &m_drawItems[begin], num, m_resources);
+      GenerateTokens<PointerStream>(job.m_streams[subframe],*sc, shadetype, &m_drawItems[begin], num, m_resources, m_config.sorted);
       sc->bufferSize = job.m_streams[subframe].size() - sc->bufferOffset;
 
       if (m_mode == MODE_BUFFER_PERS){
@@ -509,7 +513,7 @@ namespace csfthreaded
     return dispatches;
   }
 
-  void RendererThreadedGLCMD::RunThread( NVPWindow& window, int tid )
+  void RendererThreadedGLCMD::RunThread(int tid )
   {
     ThreadJob & job  = m_jobs[tid];
     ShadeType shadetype;
@@ -523,15 +527,15 @@ namespace csfthreaded
 
     while(!m_stopThreads)
     {
-      //NVP_BARRIER();
+      //NV_BARRIER();
 
       double beginFrame = NVPWindow::sysGetTime();
       timeFrame -= NVPWindow::sysGetTime();
 
       {
-        tthread::lock_guard<tthread::mutex> lock(job.m_hasWorkMutex);
+        std::unique_lock<std::mutex> lock(job.m_hasWorkMutex);
         while(job.m_hasWork != job.m_frame){
-          job.m_hasWorkCond.wait(job.m_hasWorkMutex);
+          job.m_hasWorkCond.wait(lock);
         }
 
         shadetype = m_shade;
@@ -566,7 +570,7 @@ namespace csfthreaded
 
         GLuint avgdispatch = GLuint(double(dispatches)/double(timerFrames));
 #if PRINT_TIMER_STATS
-        printf("thread %d: work %6d [us] dispatches %5d\n", tid, GLuint(timeWork), GLuint(avgdispatch));
+        LOGI("thread %d: work %6d [us] dispatches %5d\n", tid, GLuint(timeWork), GLuint(avgdispatch));
 #endif
         timeFrame = 0;
         timeWork = 0;
@@ -577,16 +581,16 @@ namespace csfthreaded
     }
 
     {
-      tthread::lock_guard<tthread::mutex> lock(m_readyMutex);
+      std::unique_lock<std::mutex> lock(m_readyMutex);
       m_ready++;
       m_readyCond.notify_all();
     }
   }
 
-  void RendererThreadedGLCMD::draw(ShadeType shadetype, Resources* NVP_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler, nv_helpers_gl::ProgramManager &progManager)
+  void RendererThreadedGLCMD::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler)
   {
-    const CadScene* NVP_RESTRICT scene = m_scene;
-    const ResourcesGL* NVP_RESTRICT res = (ResourcesGL*)resources;
+    const CadScene* NV_RESTRICT scene = m_scene;
+    const ResourcesGL* NV_RESTRICT res = (ResourcesGL*)resources;
 
     // generic state setup
     glViewport(0, 0, global.width, global.height);
@@ -601,26 +605,26 @@ namespace csfthreaded
       res->rebuildStateObjects();
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, res->fbos.scene);
+    glBindFramebuffer(GL_FRAMEBUFFER, res->m_fbos.scene);
     glClearColor(0.2f,0.2f,0.2f,0.0f);
     glClearDepth(1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-    glNamedBufferSubDataEXT(res->buffers.scene,0,sizeof(SceneData),&global.sceneUbo);
+    glNamedBufferSubData(res->m_buffers.scene,0,sizeof(SceneData),&global.sceneUbo);
 
-    m_workingSet   = res->m_workingSet;
+    m_workingSet   = global.workingSet;
     m_shade        = shadetype;
     m_numCurItems  = 0;
     m_numEnqueues  = 0;
 
     // generate & tokens/cmdbuffers in parallel
 
-    NVP_BARRIER();
+    NV_BARRIER();
 
     // start to dispatch threads
     for (int i = 0; i < m_numThreads; i++){
       {
-        tthread::lock_guard<tthread::mutex> lock(m_jobs[i].m_hasWorkMutex);
+        std::unique_lock<std::mutex> lock(m_jobs[i].m_hasWorkMutex);
         m_jobs[i].m_hasWork = m_frame;
       }
       m_jobs[i].m_hasWorkCond.notify_one();
@@ -643,19 +647,20 @@ namespace csfthreaded
         bool hadEntry = false;
         ShadeCommand* sc = NULL;
 
-        m_drawMutex.lock();
-        if (!m_drawQueue.empty()){
+        {
+          std::lock_guard<nv_helpers::spin_mutex>  lock(m_drawMutex);
+          if (!m_drawQueue.empty()) {
 
-          sc = m_drawQueue.front();
-          m_drawQueue.pop();
+            sc = m_drawQueue.front();
+            m_drawQueue.pop();
 
-          hadEntry = true;
+            hadEntry = true;
+          }
         }
-        m_drawMutex.unlock();
 
         if (hadEntry){
           if (sc){
-            NVP_BARRIER();
+            NV_BARRIER();
             m_numEnqueues++;
             glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
             glDrawCommandsStatesNV(sc->buffer, &sc->offsets[0], &sc->sizes[0], &sc->states[0], &sc->fbos[0], (uint32_t)sc->sizes.size());
@@ -668,7 +673,7 @@ namespace csfthreaded
         if (numTerminated == m_numThreads){
           break;
         }
-        tthread::this_thread::yield();
+        std::this_thread::yield();
       }
     }
 
@@ -687,7 +692,7 @@ namespace csfthreaded
     m_state = res->m_state;
   }
 
-  void RendererThreadedGLCMD::blit( ShadeType shadeType, Resources* NVP_RESTRICT resources, const Resources::Global& global )
+  void RendererThreadedGLCMD::blit( ShadeType shadeType, Resources* NV_RESTRICT resources, const Resources::Global& global )
   {
     ResourcesGL* res = (ResourcesGL*)resources;
 
@@ -695,7 +700,7 @@ namespace csfthreaded
     int height  = global.height;
 
     // blit to background
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, res->fbos.scene);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, res->m_fbos.scene);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glBlitFramebuffer(0,0,width,height,
       0,0,width,height,GL_COLOR_BUFFER_BIT, GL_NEAREST);
@@ -704,3 +709,5 @@ namespace csfthreaded
   }
 
 }
+
+#endif

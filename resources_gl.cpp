@@ -1,31 +1,35 @@
-/*-----------------------------------------------------------------------
-  Copyright (c) 2014-2016, NVIDIA. All rights reserved.
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
-  are met:
-   * Redistributions of source code must retain the above copyright
-     notice, this list of conditions and the following disclaimer.
-   * Neither the name of its contributors may be used to endorse 
-     or promote products derived from this software without specific
-     prior written permission.
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-  PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------*/
-/* Contact ckubisch@nvidia.com (Christoph Kubisch) for feedback */
-
-
-#pragma once
+/* Copyright (c) 2014-2018, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
 #include "resources_gl.hpp"
+
+#include <imgui/imgui_impl_gl.h>
+
+#include <main.h>
 
 using namespace nv_helpers_gl;
 
@@ -35,25 +39,28 @@ namespace csfthreaded {
   size_t ResourcesGL::s_token_sizes[] = {0};
   GLushort ResourcesGL::s_token_stages[] = {0};
 
-  bool ResourcesGL::initFramebuffer(int width, int height, int msaa)
+  bool ResourcesGL::initFramebuffer(int width, int height, int msaa, bool vsync)
   {
-    newTexture(textures.scene_color);
-    newTexture(textures.scene_depthstencil);
-    newFramebuffer(fbos.scene);
+    m_width = width;
+    m_height = height;
+
+    newTexture(m_textures.scene_color, msaa ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D);
+    newTexture(m_textures.scene_depthstencil, msaa ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D);
+    newFramebuffer(m_fbos.scene);
 
     if (msaa){
-      glTextureStorage2DMultisampleEXT(textures.scene_color, GL_TEXTURE_2D_MULTISAMPLE,        msaa, GL_RGBA8, width, height, GL_FALSE);
-      glTextureStorage2DMultisampleEXT(textures.scene_depthstencil, GL_TEXTURE_2D_MULTISAMPLE, msaa, GL_DEPTH24_STENCIL8, width, height, GL_FALSE);
+      glTextureStorage2DMultisample(m_textures.scene_color,         msaa, GL_RGBA8, width, height, GL_FALSE);
+      glTextureStorage2DMultisample(m_textures.scene_depthstencil,  msaa, GL_DEPTH24_STENCIL8, width, height, GL_FALSE);
 
-      glNamedFramebufferTexture2DEXT(fbos.scene, GL_COLOR_ATTACHMENT0,        GL_TEXTURE_2D_MULTISAMPLE, textures.scene_color, 0);
-      glNamedFramebufferTexture2DEXT(fbos.scene, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D_MULTISAMPLE, textures.scene_depthstencil, 0);
+      glNamedFramebufferTexture(m_fbos.scene, GL_COLOR_ATTACHMENT0,         m_textures.scene_color, 0);
+      glNamedFramebufferTexture(m_fbos.scene, GL_DEPTH_STENCIL_ATTACHMENT,  m_textures.scene_depthstencil, 0);
     }
     else{
-      glTextureStorage2DEXT(textures.scene_color, GL_TEXTURE_2D, 1, GL_RGBA8, width, height);
-      glTextureStorage2DEXT(textures.scene_depthstencil, GL_TEXTURE_2D, 1, GL_DEPTH24_STENCIL8, width, height);
+      glTextureStorage2D(m_textures.scene_color,  1, GL_RGBA8, width, height);
+      glTextureStorage2D(m_textures.scene_depthstencil,  1, GL_DEPTH24_STENCIL8, width, height);
 
-      glNamedFramebufferTexture2DEXT(fbos.scene, GL_COLOR_ATTACHMENT0,        GL_TEXTURE_2D, textures.scene_color, 0);
-      glNamedFramebufferTexture2DEXT(fbos.scene, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, textures.scene_depthstencil, 0);
+      glNamedFramebufferTexture(m_fbos.scene, GL_COLOR_ATTACHMENT0,         m_textures.scene_color, 0);
+      glNamedFramebufferTexture(m_fbos.scene, GL_DEPTH_STENCIL_ATTACHMENT,  m_textures.scene_depthstencil, 0);
     }
 
     m_state.fbos++;
@@ -63,23 +70,24 @@ namespace csfthreaded {
 
   void ResourcesGL::deinitFramebuffer()
   {
-    deleteFramebuffer(fbos.scene);
-    deleteTexture(textures.scene_color);
-    deleteTexture(textures.scene_depthstencil);
+    deleteFramebuffer(m_fbos.scene);
+
+    deleteTexture(m_textures.scene_color);
+    deleteTexture(m_textures.scene_depthstencil);
 
     glBindFramebuffer(GL_FRAMEBUFFER,0);
   }
 
-  void ResourcesGL::deinit(nv_helpers_gl::ProgramManager &mgr)
+  void ResourcesGL::deinit()
   {
     deinitScene();
     deinitFramebuffer();
-    deinitPrograms(mgr);
+    deinitPrograms();
 
     if (m_cmdlist){
-      glDeleteStatesNV(1,&stateobjects.draw_line);
-      glDeleteStatesNV(1,&stateobjects.draw_tris);
-      glDeleteStatesNV(1,&stateobjects.draw_line_tris);
+      glDeleteStatesNV(1, &m_stateobjects.draw_line);
+      glDeleteStatesNV(1, &m_stateobjects.draw_tris);
+      glDeleteStatesNV(1, &m_stateobjects.draw_line_tris);
     }
 
     glDisable(GL_DEPTH_TEST);
@@ -87,39 +95,25 @@ namespace csfthreaded {
 
     m_gltimers.deinit();
 
-    mgr.m_prepend = std::string();
+    ImGui::ShutdownGL();
   }
 
   void ResourcesGL::deinitScene()
   {
-    if (buffers.scene && GLEW_NV_shader_buffer_load){
-      glMakeNamedBufferNonResidentNV(buffers.scene);
-    }
-    deleteBuffer(buffers.scene);
-    deleteBuffer(buffers.anim);
-
     if (m_geometry.empty()) return;
 
-    if (GLEW_NV_vertex_buffer_unified_memory){
-      glMakeNamedBufferNonResidentNV(buffers.matrices);
-      glMakeNamedBufferNonResidentNV(buffers.matricesOrig);
-      glMakeNamedBufferNonResidentNV(buffers.materials);
-    }
-    
-    glDeleteBuffers(1,&buffers.matrices);
-    glDeleteBuffers(1,&buffers.matricesOrig);
-    glDeleteBuffers(1,&buffers.materials);
+    m_buffers.scene.destroy();
+    m_buffers.anim.destroy();
+    m_buffers.matrices.destroy();
+    m_buffers.materials.destroy();
+    m_buffers.matricesOrig.destroy();
 
     for (size_t i = 0 ; i < m_geometry.size(); i++)
     {
       if (m_geometry[i].cloneIdx >= 0) continue;
 
-      if (GLEW_NV_vertex_buffer_unified_memory){
-        glMakeNamedBufferNonResidentNV(m_geometry[i].iboGL);
-        glMakeNamedBufferNonResidentNV(m_geometry[i].vboGL);
-      }
-      glDeleteBuffers(1,&m_geometry[i].iboGL);
-      glDeleteBuffers(1,&m_geometry[i].vboGL);
+      m_geometry[i].vbo.destroy();
+      m_geometry[i].ibo.destroy();
     }
 
     m_geometry.clear();
@@ -131,40 +125,18 @@ namespace csfthreaded {
   {
     m_numMatrices = (int32_t)cadscene.m_matrices.size();
 
-    newBuffer(buffers.scene);
-    glNamedBufferStorageEXT(buffers.scene, sizeof(SceneData), NULL, GL_DYNAMIC_STORAGE_BIT);
+    m_buffers.scene.create(sizeof(SceneData), nullptr, GL_DYNAMIC_STORAGE_BIT, 0);
+    m_buffers.anim.create(sizeof(AnimationData), nullptr, GL_DYNAMIC_STORAGE_BIT, 0);
 
-    newBuffer(buffers.anim);
-    glNamedBufferStorageEXT(buffers.anim, sizeof(AnimationData), NULL, GL_DYNAMIC_STORAGE_BIT);
-
-    if (GLEW_NV_shader_buffer_load){
-      glGetNamedBufferParameterui64vNV(buffers.scene, GL_BUFFER_GPU_ADDRESS_NV, &addresses.scene);
-      glMakeNamedBufferResidentNV(buffers.scene,GL_READ_ONLY);
-    }
-
-    m_geometry.resize( cadscene.m_geometry.size() );
+    m_geometry.resize(cadscene.m_geometry.size());
     
     for (size_t i = 0; i < cadscene.m_geometry.size(); i++){
       const CadScene::Geometry & cgeom = cadscene.m_geometry[i];
       Geometry&                   geom = m_geometry[i];
 
       if (cgeom.cloneIdx < 0) {
-        geom.vboSize = (GLsizei)cgeom.vboSize;
-        geom.iboSize = (GLsizei)cgeom.iboSize;
-
-        glGenBuffers(1,&geom.vboGL);
-        glNamedBufferStorageEXT(geom.vboGL, cgeom.vboSize, &cgeom.vertices[0], 0);
-
-        glGenBuffers(1,&geom.iboGL);
-        glNamedBufferStorageEXT(geom.iboGL, cgeom.iboSize, &cgeom.indices[0], 0);
-
-        if (GLEW_NV_vertex_buffer_unified_memory){
-          glGetNamedBufferParameterui64vNV(geom.vboGL, GL_BUFFER_GPU_ADDRESS_NV, &geom.vboADDR);
-          glMakeNamedBufferResidentNV(geom.vboGL, GL_READ_ONLY);
-
-          glGetNamedBufferParameterui64vNV(geom.iboGL, GL_BUFFER_GPU_ADDRESS_NV, &geom.iboADDR);
-          glMakeNamedBufferResidentNV(geom.iboGL, GL_READ_ONLY);
-        }
+        geom.vbo.create(cgeom.vboSize, cgeom.vertices, 0, 0);
+        geom.ibo.create(cgeom.iboSize, cgeom.indices, 0, 0);
       }
       else{
         geom = m_geometry[cgeom.cloneIdx];
@@ -176,71 +148,75 @@ namespace csfthreaded {
     assert(sizeof(CadScene::MatrixNode) == m_alignedMatrixSize);
     assert(sizeof(CadScene::Material)   == m_alignedMaterialSize);
 
-    glGenBuffers(1,&buffers.materials);
-    glNamedBufferStorageEXT(buffers.materials, sizeof(CadScene::Material) * cadscene.m_materials.size(), &cadscene.m_materials[0], 0);
-
-    glGenBuffers(1,&buffers.matrices);
-    glNamedBufferStorageEXT(buffers.matrices, sizeof(CadScene::MatrixNode) * cadscene.m_matrices.size(), &cadscene.m_matrices[0], 0);
-
-    glGenBuffers(1,&buffers.matricesOrig);
-    glNamedBufferStorageEXT(buffers.matricesOrig, sizeof(CadScene::MatrixNode) * cadscene.m_matrices.size(), &cadscene.m_matrices[0], 0);
-
-    if (GLEW_NV_vertex_buffer_unified_memory){
-      glGetNamedBufferParameterui64vNV(buffers.materials, GL_BUFFER_GPU_ADDRESS_NV, &addresses.materials);
-      glMakeNamedBufferResidentNV(buffers.materials, GL_READ_ONLY);
-
-      glGetNamedBufferParameterui64vNV(buffers.matrices, GL_BUFFER_GPU_ADDRESS_NV, &addresses.matrices);
-      glMakeNamedBufferResidentNV(buffers.matrices, GL_READ_WRITE);
-
-      glGetNamedBufferParameterui64vNV(buffers.matricesOrig, GL_BUFFER_GPU_ADDRESS_NV, &addresses.matricesOrig);
-      glMakeNamedBufferResidentNV(buffers.matricesOrig, GL_READ_ONLY);
-    }
-
+    m_buffers.materials.create(sizeof(CadScene::Material) * cadscene.m_materials.size(), cadscene.m_materials.data(), 0, 0);
+    m_buffers.matrices.create(sizeof(CadScene::MatrixNode) * cadscene.m_matrices.size(), cadscene.m_matrices.data(), 0, 0);
+    m_buffers.matricesOrig.create(sizeof(CadScene::MatrixNode) * cadscene.m_matrices.size(), cadscene.m_matrices.data(), 0, 0);
     m_state.fbos++;
 
     return true;
   }
 
-  bool ResourcesGL::initPrograms( nv_helpers_gl::ProgramManager &mgr)
+  bool ResourcesGL::initPrograms(const std::string& path, const std::string &prepend)
   {
-    mgr.m_preprocessOnly = false;
-
-    if (m_cmdlist){
-      mgr.m_prepend = std::string("#extension GL_NV_gpu_shader5 : require\n#extension GL_NV_command_list : require \nlayout(commandBindableNV) uniform;\n");
+    m_progManager.m_filetype = nv_helpers::ShaderFileManager::FILETYPE_GLSL;
+    m_progManager.m_prepend = prepend;
+    if (m_cmdlist) {
+      m_progManager.m_prepend += std::string("#extension GL_NV_gpu_shader5 : require\n#extension GL_NV_command_list : require \nlayout(commandBindableNV) uniform;\n");
     }
 
-    programids.draw_object_tris = mgr.createProgram(
+    m_progManager.addDirectory(path);
+    m_progManager.addDirectory(std::string("GLSL_" PROJECT_NAME));
+    m_progManager.addDirectory(path + std::string(PROJECT_RELDIRECTORY));
+    m_progManager.addDirectory(std::string(PROJECT_ABSDIRECTORY));
+    
+    m_progManager.registerInclude("common.h", "common.h");
+
+    m_programids.draw_object_tris = m_progManager.createProgram(
       ProgramManager::Definition(GL_VERTEX_SHADER,    "#define WIREMODE 0\n",  "scene.vert.glsl"),
       ProgramManager::Definition(GL_FRAGMENT_SHADER,  "#define WIREMODE 0\n",  "scene.frag.glsl"));
 
-    programids.draw_object_line = mgr.createProgram(
+    m_programids.draw_object_line = m_progManager.createProgram(
       ProgramManager::Definition(GL_VERTEX_SHADER,    "#define WIREMODE 1\n",  "scene.vert.glsl"),
       ProgramManager::Definition(GL_FRAGMENT_SHADER,  "#define WIREMODE 1\n",  "scene.frag.glsl"));
 
-    programids.compute_animation = mgr.createProgram(
-      ProgramManager::Definition(GL_COMPUTE_SHADER,   m_cmdlist ? "#define USE_POINTERS 1\n" : "", "animation.comp.glsl"));
+    m_programids.compute_animation = m_progManager.createProgram(
+      ProgramManager::Definition(GL_COMPUTE_SHADER,  "animation.comp.glsl"));
 
-    updatedPrograms(mgr);
+    bool valid = m_progManager.areProgramsValid();
 
-    return mgr.areProgramsValid();
+    if (valid) {
+      updatedPrograms();
+    }
+
+    return valid;
   }
 
-  void ResourcesGL::updatedPrograms( nv_helpers_gl::ProgramManager &mgr)
+  void ResourcesGL::reloadPrograms(const std::string& prepend)
   {
-    programs.draw_line         = mgr.get(programids.draw_object_line);
-    programs.draw_solid        = mgr.get(programids.draw_object_tris);
-    programs.compute_animation = mgr.get(programids.compute_animation);
+    m_progManager.m_prepend = prepend;
+    if (m_cmdlist) {
+      m_progManager.m_prepend += std::string("#extension GL_NV_gpu_shader5 : require\n#extension GL_NV_command_list : require \nlayout(commandBindableNV) uniform;\n");
+    }
+    m_progManager.reloadPrograms();
+    updatedPrograms();
+  }
+
+  void ResourcesGL::updatedPrograms()
+  {
+    m_programs.draw_line = m_progManager.get(m_programids.draw_object_line);
+    m_programs.draw_solid = m_progManager.get(m_programids.draw_object_tris);
+    m_programs.compute_animation = m_progManager.get(m_programids.compute_animation);
 
     // rebuild stateobjects
 
     m_state.programs++;
   }
 
-  void ResourcesGL::deinitPrograms( nv_helpers_gl::ProgramManager &mgr)
+  void ResourcesGL::deinitPrograms()
   {
-    mgr.destroyProgram(programids.draw_object_line);
-    mgr.destroyProgram(programids.draw_object_tris);
-    mgr.destroyProgram(programids.compute_animation);
+    m_progManager.destroyProgram(m_programids.draw_object_line);
+    m_progManager.destroyProgram(m_programids.draw_object_tris);
+    m_progManager.destroyProgram(m_programids.compute_animation);
 
     glUseProgram(0);
   }
@@ -251,16 +227,18 @@ namespace csfthreaded {
     ResourcesGL::s_token_sizes[type] = sizeof(T);
   }
 
-  void ResourcesGL::init()
+  bool ResourcesGL::init(NVPWindow *window)
   {
+    ImGui::InitGL();
+
     GLint uboAlignment;
     glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT,&uboAlignment);
     initAlignedSizes(uboAlignment);
 
     m_gltimers.init( nv_helpers::Profiler::START_TIMERS);
 
-    m_bindless_ubo = !!NVPWindow::sysExtensionSupported("GL_NV_uniform_buffer_unified_memory");
-    m_cmdlist      = !!init_NV_command_list(NVPWindow::sysGetProcAddress);
+    m_bindless_ubo = !!NVPWindow::sysExtensionSupportedGL("GL_NV_uniform_buffer_unified_memory");
+    m_cmdlist      = !!load_GL_NV_command_list(NVPWindow::sysGetProcAddressGL);
 
     if (m_cmdlist){
       registerSize<TerminateSequenceCommandNV>(GL_TERMINATE_SEQUENCE_COMMAND_NV          );
@@ -293,12 +271,14 @@ namespace csfthreaded {
       s_token_stages[NVTOKEN_STAGE_GEOMETRY] = glGetStageIndexNV(GL_GEOMETRY_SHADER);
       s_token_stages[NVTOKEN_STAGE_FRAGMENT] = glGetStageIndexNV(GL_FRAGMENT_SHADER);
 
-      glCreateStatesNV(1,&stateobjects.draw_tris);
-      glCreateStatesNV(1,&stateobjects.draw_line_tris);
-      glCreateStatesNV(1,&stateobjects.draw_line);
+      glCreateStatesNV(1, &m_stateobjects.draw_tris);
+      glCreateStatesNV(1, &m_stateobjects.draw_line_tris);
+      glCreateStatesNV(1, &m_stateobjects.draw_line);
     }
 
     glDepthFunc(GL_LESS);
+
+    return true;
   }
 
 #define TOSTRING(a)  case a: return #a;
@@ -331,9 +311,9 @@ namespace csfthreaded {
   }
 #undef TOSTRING
 
-  void ResourcesGL::nvtokenGetStats( const void* NVP_RESTRICT stream, size_t streamSize, int stats[GL_TOKENS] )
+  void ResourcesGL::nvtokenGetStats( const void* NV_RESTRICT stream, size_t streamSize, int stats[GL_TOKENS] )
   {
-    const GLubyte* NVP_RESTRICT current = (GLubyte*)stream;
+    const GLubyte* NV_RESTRICT current = (GLubyte*)stream;
     const GLubyte* streamEnd = current + streamSize;
 
     while (current < streamEnd){
@@ -351,7 +331,7 @@ namespace csfthreaded {
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
-    enableVertexFormat(VERTEX_POS,VERTEX_NORMAL);
+    enableVertexFormat();
 
     // temp workaround
     glBufferAddressRangeNV(GL_VERTEX_ATTRIB_ARRAY_ADDRESS_NV,0,0,0);
@@ -361,17 +341,17 @@ namespace csfthreaded {
     glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_SCENE,0,0);
 
     // we will do a series of state captures
-    glBindFramebuffer(GL_FRAMEBUFFER, fbos.scene);
-    glUseProgram( programs.draw_solid );
-    glStateCaptureNV( stateobjects.draw_tris, GL_TRIANGLES);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_fbos.scene);
+    glUseProgram(m_programs.draw_solid );
+    glStateCaptureNV( m_stateobjects.draw_tris, GL_TRIANGLES);
     
     glEnable(GL_POLYGON_OFFSET_FILL);
-    glStateCaptureNV( stateobjects.draw_line_tris, GL_TRIANGLES);
+    glStateCaptureNV(m_stateobjects.draw_line_tris, GL_TRIANGLES);
 
-    glUseProgram( programs.draw_line );
-    glStateCaptureNV( stateobjects.draw_line, GL_LINES);
+    glUseProgram(m_programs.draw_line );
+    glStateCaptureNV(m_stateobjects.draw_line, GL_LINES);
 
-    disableVertexFormat(VERTEX_POS,VERTEX_NORMAL);
+    disableVertexFormat();
 
     // reset, stored in stateobjects
     glUseProgram(0);
@@ -379,20 +359,15 @@ namespace csfthreaded {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
   }
 
-  void ResourcesGL::animation(Global& global)
+  void ResourcesGL::animation(const Global& global)
   {
-    glUseProgram(programs.compute_animation);
-
-    global.animUbo.animatedMatrices = addresses.matrices;
-    global.animUbo.originalMatrices = addresses.matricesOrig;
-
-    glBindBufferBase(GL_UNIFORM_BUFFER, 0, buffers.anim);
+    glUseProgram(m_programs.compute_animation);
+    
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_buffers.anim.buffer);
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(AnimationData), &global.animUbo);
 
-    if (!m_cmdlist){
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_MATRIXOUT, buffers.matrices);
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_MATRIXORIG, buffers.matricesOrig);
-    }
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_MATRIXOUT, m_buffers.matrices.buffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_MATRIXORIG, m_buffers.matricesOrig.buffer);
 
     glDispatchCompute((m_numMatrices + ANIMATION_WORKGROUPSIZE-1) / ANIMATION_WORKGROUPSIZE,1,1);
 
@@ -402,10 +377,48 @@ namespace csfthreaded {
 
   void ResourcesGL::animationReset()
   {
-    glNamedCopyBufferSubDataEXT(buffers.matricesOrig, buffers.matrices, 0, 0, m_numMatrices * sizeof(MatrixData) );
+    glCopyNamedBufferSubData(m_buffers.matricesOrig, m_buffers.matrices, 0, 0, sizeof(MatrixData) * m_numMatrices);
+  }
+  
+  void ResourcesGL::blitFrame(const Global& global)
+  {
+    int width = global.width;
+    int height = global.height;
+
+    // blit to background
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_fbos.scene);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBlitFramebuffer(0, 0, width, height,
+      0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    if (global.imguiDrawData) {
+      glViewport(0, 0, width, height);
+      ImGui::RenderDrawDataGL(global.imguiDrawData);
+    }
+
+  }
+
+  void ResourcesGL::enableVertexFormat() const
+  {
+    glVertexAttribBinding(VERTEX_POS, 0);
+    glVertexAttribBinding(VERTEX_NORMAL, 0);
+    glEnableVertexAttribArray(VERTEX_POS);
+    glEnableVertexAttribArray(VERTEX_NORMAL);
+    
+    glVertexAttribFormat(VERTEX_POS, 3, GL_FLOAT, GL_FALSE, offsetof(CadScene::Vertex, position));
+    glVertexAttribFormat(VERTEX_NORMAL, 3, GL_FLOAT, GL_FALSE, offsetof(CadScene::Vertex, normal));
+    glBindVertexBuffer(0, 0, 0, sizeof(CadScene::Vertex));
+  }
+
+
+  void ResourcesGL::disableVertexFormat() const
+  {
+    glDisableVertexAttribArray(VERTEX_POS);
+    glDisableVertexAttribArray(VERTEX_NORMAL);
+    glBindVertexBuffer(0, 0, 0, 16);
+    glBindVertexBuffer(1, 0, 0, 16);
   }
 }
-
-
-
 

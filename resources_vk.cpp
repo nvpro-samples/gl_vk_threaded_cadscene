@@ -1,34 +1,42 @@
-/*-----------------------------------------------------------------------
-  Copyright (c) 2014-2016, NVIDIA. All rights reserved.
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
-  are met:
-   * Redistributions of source code must retain the above copyright
-     notice, this list of conditions and the following disclaimer.
-   * Neither the name of its contributors may be used to endorse 
-     or promote products derived from this software without specific
-     prior written permission.
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-  PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------*/
-/* Contact ckubisch@nvidia.com (Christoph Kubisch) for feedback */
+/* Copyright (c) 2014-2018, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
 #include "resources_vk.hpp"
+
+#include <imgui/imgui_impl_vk.h>
+
+#include <main.h>
 #include <algorithm>
 
-extern bool vulkanInitLibrary();
-extern bool vulkanCreateContext(VkDevice &device, VkPhysicalDevice& physicalDevice,  VkInstance &instance, const char* appTitle, const char* engineName);
-extern void vulkanContextCleanup(VkDevice device, VkPhysicalDevice physicalDevice,  VkInstance instance);
+#if HAS_OPENGL
+#include <nv_helpers_gl/extensions_gl.hpp>
+#endif
 
+extern bool vulkanInitLibrary();
 using namespace nv_helpers_gl;
 
 namespace csfthreaded {
@@ -49,407 +57,299 @@ namespace csfthreaded {
     return result;
   }
 
-  //////////////////////////////////////////////////////////////////////////
 
-  bool  getMemoryAllocationInfo(const VkMemoryRequirements &memReqs, VkFlags memProps, const VkPhysicalDeviceMemoryProperties  &memoryProperties, VkMemoryAllocateInfo &memInfo)
-  {
-    memInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    memInfo.pNext = NULL;
-
-    if (!memReqs.size){
-      memInfo.allocationSize  = 0;
-      memInfo.memoryTypeIndex = ~0;
-      return true;
-    }
-
-    // Find an available memory type that satifies the requested properties.
-    uint32_t memoryTypeIndex;
-    for (memoryTypeIndex = 0; memoryTypeIndex < memoryProperties.memoryTypeCount; ++memoryTypeIndex) {
-      if (( memReqs.memoryTypeBits & (1<<memoryTypeIndex)) &&
-        ( memoryProperties.memoryTypes[memoryTypeIndex].propertyFlags & memProps) == memProps) 
-      {
-        break;
-      }
-    }
-    if (memoryTypeIndex >= memoryProperties.memoryTypeCount) {
-      assert(0 && "memorytypeindex not found");
-      return false;
-    }
-
-    memInfo.allocationSize  = memReqs.size;
-    memInfo.memoryTypeIndex = memoryTypeIndex;
-
-    return true;
-  }
-
-  bool appendMemoryAllocationInfo(const VkMemoryRequirements &memReqs, VkFlags memProps, const VkPhysicalDeviceMemoryProperties  &memoryProperties, VkMemoryAllocateInfo &memInfoAppended, VkDeviceSize &offset)
-  {
-    VkMemoryAllocateInfo memInfo;
-    if (!getMemoryAllocationInfo(memReqs, memProps, memoryProperties, memInfo)){
-      return false;
-    }
-    if (memInfoAppended.allocationSize == 0){
-      memInfoAppended = memInfo;
-      offset  = 0;
-      return true;
-    }
-    else if (memInfoAppended.memoryTypeIndex != memInfo.memoryTypeIndex){
-      return false;
-    }
-    else{
-      offset = (memInfoAppended.allocationSize + memReqs.alignment - 1) & ~(memReqs.alignment - 1);
-      memInfoAppended.allocationSize = offset + memInfo.allocationSize;
-      return true;
-    }
-  }
-
-  //////////////////////////////////////////////////////////////////////////
-
-  VkResult ResourcesVK::allocMemAndBindBuffer(VkBuffer obj, VkDeviceMemory &gpuMem, VkFlags memProps)
-  {
-    VkResult result;
-
-    VkMemoryRequirements  memReqs;
-    vkGetBufferMemoryRequirements(m_device, obj, &memReqs);
-
-    VkMemoryAllocateInfo  memInfo;
-    if (!getMemoryAllocationInfo(memReqs, memProps, m_physical.memoryProperties, memInfo)){
-      return VK_ERROR_INITIALIZATION_FAILED;
-    }
-
-    result = vkAllocateMemory(m_device, &memInfo, NULL, &gpuMem);
-    if (result != VK_SUCCESS) {
-      return result;
-    }
-
-    result = vkBindBufferMemory(m_device, obj, gpuMem, 0);
-    if (result != VK_SUCCESS) {
-      return result;
-    }
-
-    return VK_SUCCESS;
-  }
-
-#define USE_PRESENT_SEMAPHORES 1
+  /////////////////////////////////////////////////////////////////////////////////
 
 
   void ResourcesVK::submissionExecute(VkFence fence, bool useImageReadWait, bool useImageWriteSignals)
   {
-    if (!m_submissions.empty() || fence || (useImageReadWait && m_submissionWaitForRead) || useImageWriteSignals){
-      VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-      VkSemaphore           semRead;
-      VkSemaphore           semWritten;
-      VkPipelineStageFlags  flags = 0;
-
-      submitInfo.commandBufferCount = (uint32_t)m_submissions.size();
-      submitInfo.pCommandBuffers = m_submissions.data();
-
-      if (useImageReadWait && m_submissionWaitForRead && USE_PRESENT_SEMAPHORES){
-        flags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        
-        semRead = m_semImageRead;
-        if (semRead){
-          submitInfo.waitSemaphoreCount = 1;
-          submitInfo.pWaitSemaphores   = &semRead;
-          submitInfo.pWaitDstStageMask = &flags;
-        }
-        
-        m_submissionWaitForRead = false;
+    if (useImageReadWait && m_submissionWaitForRead) {
+#if HAS_OPENGL
+      VkSemaphore semRead = m_semImageRead;
+#else
+      VkSemaphore semRead = m_swapChain->getActiveReadSemaphore();
+#endif
+      if (semRead) {
+        m_submission.enqueueWait(semRead, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
       }
-
-      if (useImageWriteSignals && USE_PRESENT_SEMAPHORES){
-        semWritten = m_semImageWritten;
-        if (semWritten){
-          submitInfo.pSignalSemaphores = &semWritten;
-          submitInfo.signalSemaphoreCount = 1;
-        }
-      }
-      vkQueueSubmit(m_queue, 1, &submitInfo, fence);
-
-      m_submissions.clear();
+      m_submissionWaitForRead = false;
     }
+
+    if (useImageWriteSignals) {
+#if HAS_OPENGL
+      VkSemaphore semWritten = m_semImageWritten;
+#else
+      VkSemaphore semWritten = m_swapChain->getActiveWrittenSemaphore();
+#endif
+      if (semWritten) {
+        m_submission.enqueueSignal(semWritten);
+      }
+    }
+    
+    m_submission.execute(fence);
   }
 
   void ResourcesVK::beginFrame()
   {
     m_submissionWaitForRead = true;
-  }
-
-  void ResourcesVK::flushFrame()
-  {
-    int current  = m_frame % MAX_BUFFERED_FRAMES;
-    submissionExecute(m_nukemFences[current], true, true);
-  }
-
-  void ResourcesVK::endFrame()
-  {
-    int current  = m_frame % MAX_BUFFERED_FRAMES;
-    int past     = (m_frame + 1) % MAX_BUFFERED_FRAMES;
-
-    if (m_frame < MAX_BUFFERED_FRAMES - 1){
-      return;
-    }
-    tempdestroyPastFrame(past);
+    m_ringFences.wait();
+    m_ringCmdPool.setCycle(m_ringFences.getCycleIndex());
   }
   
-  void ResourcesVK::init()
+  void ResourcesVK::endFrame()
   {
-    VkResult result;
+    submissionExecute(m_ringFences.advanceCycle(), true, true);
+#if HAS_OPENGL
+    {
+      // blit to gl backbuffer
+      glDisable(GL_DEPTH_TEST);
+      glWaitVkSemaphoreNV((GLuint64)m_semImageWritten);
+      glDrawVkImageNV((GLuint64)(VkImage)(m_msaa ? images.scene_color_resolved : images.scene_color), 0,
+        0, 0, m_width, m_height, 0,
+        0, 1, 1, 0);
+      glEnable(GL_DEPTH_TEST);
+      glSignalVkSemaphoreNV((GLuint64)m_semImageRead);
+    }
+#endif
+  }
 
+  void ResourcesVK::blitFrame(const Global& global)
+  {
+    VkCommandBuffer cmd = createTempCmdBuffer();
+
+    VkImage imageBlitRead = images.scene_color;
+
+    if (m_msaa) {
+      cmdImageTransition(cmd, images.scene_color, VK_IMAGE_ASPECT_COLOR_BIT,
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+      VkImageResolve region = { 0 };
+      region.extent.width = m_width;
+      region.extent.height = m_height;
+      region.extent.depth = 1;
+      region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      region.dstSubresource.layerCount = 1;
+      region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      region.srcSubresource.layerCount = 1;
+
+      imageBlitRead = images.scene_color_resolved;
+
+      vkCmdResolveImage(cmd, images.scene_color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        imageBlitRead, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &region);
+    }
+
+
+    if (global.imguiDrawData) {
+      VkRenderPassBeginInfo renderPassBeginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+      renderPassBeginInfo.renderPass = passes.sceneUI;
+      renderPassBeginInfo.framebuffer = fbos.sceneUI;
+      renderPassBeginInfo.renderArea.offset.x = 0;
+      renderPassBeginInfo.renderArea.offset.y = 0;
+      renderPassBeginInfo.renderArea.extent.width = m_width;
+      renderPassBeginInfo.renderArea.extent.height = m_height;
+      renderPassBeginInfo.clearValueCount = 0;
+      renderPassBeginInfo.pClearValues = nullptr;
+
+      vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+      cmdDynamicState(cmd);
+
+      ImGui::RenderDrawDataVK(cmd, global.imguiDrawData );
+
+      vkCmdEndRenderPass(cmd);
+
+      // turns imageBlitRead to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+    }
+    else {
+      if (m_msaa) {
+        cmdImageTransition(cmd, images.scene_color_resolved, VK_IMAGE_ASPECT_COLOR_BIT,
+          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+      }
+      else {
+        cmdImageTransition(cmd, images.scene_color, VK_IMAGE_ASPECT_COLOR_BIT,
+          VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+      }
+    }
+
+
+#if !HAS_OPENGL
+    {
+      // blit to vk backbuffer
+      VkImageBlit region = { 0 };
+      region.dstOffsets[1].x = m_width;
+      region.dstOffsets[1].y = m_height;
+      region.dstOffsets[1].z = 1;
+      region.srcOffsets[1].x = m_width;
+      region.srcOffsets[1].y = m_height;
+      region.srcOffsets[1].z = 1;
+      region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      region.dstSubresource.layerCount = 1;
+      region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      region.srcSubresource.layerCount = 1;
+
+      cmdImageTransition(cmd, m_swapChain->getActiveImage(), VK_IMAGE_ASPECT_COLOR_BIT,
+        0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+      vkCmdBlitImage(cmd, imageBlitRead, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        m_swapChain->getActiveImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &region, VK_FILTER_NEAREST);
+
+      cmdImageTransition(cmd, m_swapChain->getActiveImage(), VK_IMAGE_ASPECT_COLOR_BIT,
+        VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    }
+#endif
+
+    if (m_msaa) {
+      cmdImageTransition(cmd, images.scene_color_resolved, VK_IMAGE_ASPECT_COLOR_BIT,
+        VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    }
+
+    vkEndCommandBuffer(cmd);
+    submissionEnqueue(cmd);
+  }
+  
+  bool ResourcesVK::init(NVPWindow *window)
+  {
     m_msaa = 0;
     m_fboIncarnation = 0;
     m_pipeIncarnation = 0;
 
-    if (!vulkanCreateContext(m_device, m_physicalDevice, m_instance, "csfthreaded", "csfthreaded")){
-      printf("vulkan device create failed (use debug build for more information)\n");
-      exit(-1);
-      return;
+#if HAS_OPENGL
+    {
+      nv_helpers_vk::BasicContextInfo  info;
+      info.device = Resources::s_vkDevice;
+      info.addDeviceExtension(VK_NVX_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME, true);
+
+      if (!info.initDeviceContext(m_ctxContent)) {
+        LOGI("vulkan device create failed (use debug build for more information)\n");
+        exit(-1);
+        return false;
+      }
+      m_ctx = &m_ctxContent;
+      m_queueFamily = m_ctx->m_physicalInfo.getQueueFamily();
+      vkGetDeviceQueue(m_ctx->m_device, m_queueFamily, 0, &m_queue);
     }
-    m_physical.init(m_physicalDevice);
-
-    vkGetDeviceQueue(m_device, 0, 0, &m_queue);
-    initAlignedSizes((uint32_t)m_physical.properties.limits.minUniformBufferOffsetAlignment);
-
+    
     {
       // OpenGL drawing
       VkSemaphoreCreateInfo semCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-      vkCreateSemaphore(m_device, &semCreateInfo, NULL, &m_semImageRead);
-      vkCreateSemaphore(m_device, &semCreateInfo, NULL, &m_semImageWritten);
+      vkCreateSemaphore(m_ctx->m_device, &semCreateInfo, m_ctx->m_allocator, &m_semImageRead);
+      vkCreateSemaphore(m_ctx->m_device, &semCreateInfo, m_ctx->m_allocator, &m_semImageWritten);
 
       // fire read to ensure queuesubmit never waits
       glSignalVkSemaphoreNV((GLuint64)m_semImageRead);
       glFlush();
     }
-    
-    // fences
-    for (int i = 0; i < MAX_BUFFERED_FRAMES; i++){
-      VkFenceCreateInfo info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-      info.flags = 0;
-      result = vkCreateFence( m_device, &info, NULL, &m_nukemFences[i]);
-      assert(result == VK_SUCCESS);
+#else
+    {
+      const nv_helpers_vk::BasicWindow* winvk = window->getBasicWindowVK();
+      m_ctx = &winvk->m_context;
+      m_queue = winvk->m_presentQueue;
+      m_queueFamily = winvk->m_presentQueueFamily;
+      m_swapChain = &winvk->m_swapChain;
     }
+    
+#endif
+    m_physical = &m_ctx->m_physicalInfo;
+    m_device = m_ctx->m_device;
+    m_allocator = m_ctx->m_allocator;
+
+    initAlignedSizes((uint32_t)m_physical->properties.limits.minUniformBufferOffsetAlignment);
+
+    // submission queue
+    m_submission.setQueue(m_queue);
+
+    // fences
+    m_ringFences.init(m_device, m_allocator);
 
     // temp cmd pool
-    {
-      VkCommandPoolCreateInfo cmdPoolInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-      cmdPoolInfo.queueFamilyIndex = 0;
-      result = vkCreateCommandPool(m_device, &cmdPoolInfo, NULL, &m_tempCmdPool);
-      assert(result == VK_SUCCESS);
-    }
+    m_ringCmdPool.init(m_device, m_queueFamily, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, m_allocator);
 
     // Create the render passes
     {
       passes.sceneClear     = createPass( true,   m_msaa);
       passes.scenePreserve  = createPass( false,  m_msaa);
+      passes.sceneUI        = createPassUI(m_msaa);
     }
 
     initTimers(nv_helpers::Profiler::START_TIMERS);
 
     // animation
     {
-      VkDescriptorSetLayoutBinding bindings[3] = { };
-      bindings[UBO_ANIM].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      bindings[UBO_ANIM].descriptorCount = 1;
-      bindings[UBO_ANIM].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-      bindings[UBO_ANIM].binding = UBO_ANIM;
-      bindings[SSBO_MATRIXOUT].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      bindings[SSBO_MATRIXOUT].descriptorCount = 1;
-      bindings[SSBO_MATRIXOUT].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-      bindings[SSBO_MATRIXOUT].binding = SSBO_MATRIXOUT;
-      bindings[SSBO_MATRIXORIG].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      bindings[SSBO_MATRIXORIG].descriptorCount = 1;
-      bindings[SSBO_MATRIXORIG].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-      bindings[SSBO_MATRIXORIG].binding = SSBO_MATRIXORIG;
+      auto& bindings = m_anim.descriptorBindings[0];
 
-      // Create descriptor layout to match the shader resources
-      VkDescriptorSetLayoutCreateInfo descriptorSetEntry = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-      descriptorSetEntry.bindingCount =  NV_ARRAYSIZE(bindings);
-      descriptorSetEntry.pBindings = bindings;
+      // UBO SCENE
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, UBO_ANIM));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, SSBO_MATRIXOUT));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, SSBO_MATRIXORIG));
+      m_anim.initSetLayout(m_device, 0);
 
-      VkDescriptorSetLayout descriptorSetLayout;
-      result = vkCreateDescriptorSetLayout(
-        m_device,
-        &descriptorSetEntry,
-        NULL,
-        &descriptorSetLayout
-        );
-      assert(result == VK_SUCCESS);
-
-      m_animDescriptorSetLayout = descriptorSetLayout;
-
-      VkDescriptorSetLayout setLayouts[] = {m_animDescriptorSetLayout};
-
-      VkPipelineLayoutCreateInfo layoutCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-      layoutCreateInfo.setLayoutCount = NV_ARRAYSIZE(setLayouts);
-      layoutCreateInfo.pSetLayouts = setLayouts;
-
-      VkPipelineLayout pipelineLayout;
-      result = vkCreatePipelineLayout(
-        m_device,
-        &layoutCreateInfo,
-        NULL,
-        &pipelineLayout
-        );
-      assert(result == VK_SUCCESS);
-
-      m_animPipelineLayout = pipelineLayout;
-
-      // Create descriptor pool and set
-      VkDescriptorPoolSize descriptorTypes[3] = {};
-      descriptorTypes[UBO_ANIM].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      descriptorTypes[UBO_ANIM].descriptorCount = 1;
-      descriptorTypes[SSBO_MATRIXOUT].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      descriptorTypes[SSBO_MATRIXOUT].descriptorCount = 1;
-      descriptorTypes[SSBO_MATRIXORIG].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      descriptorTypes[SSBO_MATRIXORIG].descriptorCount = 1;
-
-      VkDescriptorPoolCreateInfo descrPoolInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-      descrPoolInfo.poolSizeCount = 3;
-      descrPoolInfo.pPoolSizes = descriptorTypes;
-      descrPoolInfo.maxSets = 1;
-      descrPoolInfo.flags = 0;
-      VkDescriptorPool descrPool;
-      result = vkCreateDescriptorPool(m_device, &descrPoolInfo, NULL, &descrPool);
-      assert(result == VK_SUCCESS);
-      
-      m_animDescriptorPool = descrPool;
-
-      VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-      allocInfo.descriptorPool = descrPool;
-      allocInfo.descriptorSetCount = 1;
-      allocInfo.pSetLayouts    = &descriptorSetLayout;
-      
-      VkDescriptorSet descriptorSet;
-      result = vkAllocateDescriptorSets(m_device, &allocInfo, &descriptorSet);
-      assert(result == VK_SUCCESS);
-
-      m_animDescriptorSet = descriptorSet;
+      m_anim.pipelineLayouts[0] = createPipelineLayout(1, m_anim.descriptorSetLayout);
+      m_anim.initPoolAndSets(m_device, 1);
     }
 
     {
-      VkPipelineLayoutCreateInfo layoutCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-
   ///////////////////////////////////////////////////////////////////////////////////////////
   #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
+      std::vector<VkDescriptorSetLayoutBinding> bindings;
 
-      VkDescriptorSetLayoutBinding bindings[UBOS_NUM] = { };
-      bindings[UBO_SCENE].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      bindings[UBO_SCENE].descriptorCount = 1;
-      bindings[UBO_SCENE].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-      bindings[UBO_SCENE].binding = 0;
-      bindings[UBO_MATRIX].descriptorType = (UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      bindings[UBO_MATRIX].descriptorCount = 1;
-      bindings[UBO_MATRIX].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-      bindings[UBO_MATRIX].binding = 0;
-      bindings[UBO_MATERIAL].descriptorType = (UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      bindings[UBO_MATERIAL].descriptorCount = 1;
-      bindings[UBO_MATERIAL].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-      bindings[UBO_MATERIAL].binding = 0;
+      bindings.clear();
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0));
+      m_drawing.descriptorSetLayout[UBO_SCENE] = createDescriptorSetLayout(bindings.size(), bindings.data());
+      
+      bindings.clear();
+    #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT, 0));
+    #else
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0));
+    #endif
+      m_drawing.descriptorSetLayout[UBO_MATRIX] = createDescriptorSetLayout(bindings.size(), bindings.data());
+      
+      bindings.clear();
+    #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_FRAGMENT_BIT, 0));
+    #else
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0));
+    #endif
+      m_drawing.descriptorSetLayout[UBO_MATERIAL] = createDescriptorSetLayout(bindings.size(), bindings.data());
 
-      for (int i = 0; i < UBOS_NUM; i++){
-        // Create descriptor layout to match the shader resources
-        VkDescriptorSetLayoutCreateInfo descriptorSetEntry = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        descriptorSetEntry.bindingCount = 1;
-        descriptorSetEntry.pBindings = bindings + i;
+      m_drawing.pipelineLayouts[0] = createPipelineLayout(UBOS_NUM, m_drawing.descriptorSetLayout);
 
-        VkDescriptorSetLayout descriptorSetLayout;
-        result = vkCreateDescriptorSetLayout(
-          m_device,
-          &descriptorSetEntry,
-          NULL,
-          &descriptorSetLayout
-          );
-        assert(result == VK_SUCCESS);
-
-        m_descriptorSetLayout[i] = descriptorSetLayout;
-      }
-
-      VkDescriptorSetLayout setLayouts[] = {m_descriptorSetLayout[0],m_descriptorSetLayout[1],m_descriptorSetLayout[2]};
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC
 
+      std::vector<VkDescriptorSetLayoutBinding> bindings;
+
+      bindings.clear();
     #if UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC
       // "worst" case, we declare all as dynamic, and used in all stages
       // this will increase GPU time!
-      VkDescriptorSetLayoutBinding bindings[UBOS_NUM] = { };
-      bindings[UBO_SCENE].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-      bindings[UBO_SCENE].descriptorCount = 1;
-      bindings[UBO_SCENE].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-      bindings[UBO_SCENE].binding = UBO_SCENE;
-      bindings[UBO_MATRIX].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-      bindings[UBO_MATRIX].descriptorCount = 1;
-      bindings[UBO_MATRIX].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-      bindings[UBO_MATRIX].binding = UBO_MATRIX;
-      bindings[UBO_MATERIAL].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-      bindings[UBO_MATERIAL].descriptorCount = 1;
-      bindings[UBO_MATERIAL].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-      bindings[UBO_MATERIAL].binding = UBO_MATERIAL;
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_SCENE));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_MATRIX));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_MATERIAL));
     #elif UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC
-      // much better, based on actual use and frequencies
-      VkDescriptorSetLayoutBinding bindings[UBOS_NUM] = { };
-      bindings[UBO_SCENE].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      bindings[UBO_SCENE].descriptorCount = 1;
-      bindings[UBO_SCENE].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-      bindings[UBO_SCENE].binding = UBO_SCENE;
-      bindings[UBO_MATRIX].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-      bindings[UBO_MATRIX].descriptorCount = 1;
-      bindings[UBO_MATRIX].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-      bindings[UBO_MATRIX].binding = UBO_MATRIX;
-      bindings[UBO_MATERIAL].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-      bindings[UBO_MATERIAL].descriptorCount = 1;
-      bindings[UBO_MATERIAL].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-      bindings[UBO_MATERIAL].binding = UBO_MATERIAL;
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_SCENE));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT, UBO_MATRIX));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_FRAGMENT_BIT, UBO_MATERIAL));
     #endif
+      m_drawing.descriptorSetLayout[0] = createDescriptorSetLayout(bindings.size(), bindings.data());
 
-      // Create descriptor layout to match the shader resources
-      VkDescriptorSetLayoutCreateInfo descriptorSetEntry = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-      descriptorSetEntry.bindingCount =  NV_ARRAYSIZE(bindings);
-      descriptorSetEntry.pBindings = bindings;
+      m_drawing.pipelineLayout = createPipelineLayout(1, m_drawing.descriptorSetLayout);
 
-      VkDescriptorSetLayout descriptorSetLayout;
-      result = vkCreateDescriptorSetLayout(
-        m_device,
-        &descriptorSetEntry,
-        NULL,
-        &descriptorSetLayout
-        );
-      assert(result == VK_SUCCESS);
-
-      m_descriptorSetLayout = descriptorSetLayout;
-
-      VkDescriptorSetLayout setLayouts[] = {m_descriptorSetLayout};
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
 
-      VkDescriptorSetLayoutBinding bindings[1] = { };
-      bindings[UBO_SCENE].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      bindings[UBO_SCENE].descriptorCount = 1;
-      bindings[UBO_SCENE].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-      bindings[UBO_SCENE].binding = UBO_SCENE;
+      bindings.clear();
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_SCENE));
 
-      // Create descriptor layout to match the shader resources
-      VkDescriptorSetLayoutCreateInfo descriptorSetEntry = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-      descriptorSetEntry.bindingCount =  NV_ARRAYSIZE(bindings);
-      descriptorSetEntry.pBindings = bindings;
+      m_drawing.descriptorSetLayout[0] = createDescriptorSetLayout(bindings.size(), bindings.data());
 
-      VkDescriptorSetLayout descriptorSetLayout;
-      result = vkCreateDescriptorSetLayout(
-        m_device,
-        &descriptorSetEntry,
-        NULL,
-        &descriptorSetLayout
-        );
-      assert(result == VK_SUCCESS);
-
-      m_descriptorSetLayout = descriptorSetLayout;
-
-      VkDescriptorSetLayout setLayouts[] = {m_descriptorSetLayout};
-      VkPushConstantRange   pushRanges[2];
-
-      assert( sizeof(ObjectData) + sizeof(MaterialData) <= m_physical.properties.limits.maxPushConstantsSize );
+      assert( sizeof(ObjectData) + sizeof(MaterialData) <= m_physical->properties.limits.maxPushConstantsSize );
 
       // warning this will only work on NVIDIA as we support 256 Bytes push constants
       // minimum is 128 Bytes, which would not fit both data
+      VkPushConstantRange   pushRanges[2];
       pushRanges[0].stageFlags  = VK_SHADER_STAGE_VERTEX_BIT;
       pushRanges[0].size        = sizeof(ObjectData);
       pushRanges[0].offset      = 0;
@@ -457,44 +357,19 @@ namespace csfthreaded {
       pushRanges[1].size        = sizeof(MaterialData);
       pushRanges[1].offset      = sizeof(ObjectData);
 
-      layoutCreateInfo.pPushConstantRanges = pushRanges;
-      layoutCreateInfo.pushConstantRangeCount = NV_ARRAYSIZE(pushRanges);;
+      m_drawing.pipelineLayout = createPipelineLayout(1, m_drawing.descriptorSetLayout, NV_ARRAY_SIZE(pushRanges), pushRanges);
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
 
-      VkDescriptorSetLayoutBinding bindings[UBOS_NUM] = { };
-      bindings[UBO_SCENE].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      bindings[UBO_SCENE].descriptorCount = 1;
-      bindings[UBO_SCENE].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-      bindings[UBO_SCENE].binding = UBO_SCENE;
-      bindings[UBO_MATRIX].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      bindings[UBO_MATRIX].descriptorCount = 1;
-      bindings[UBO_MATRIX].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-      bindings[UBO_MATRIX].binding = UBO_MATRIX;
-      bindings[UBO_MATERIAL].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      bindings[UBO_MATERIAL].descriptorCount = 1;
-      bindings[UBO_MATERIAL].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-      bindings[UBO_MATERIAL].binding = UBO_MATERIAL;
-      // Create descriptor layout to match the shader resources
-      VkDescriptorSetLayoutCreateInfo descriptorSetEntry = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-      descriptorSetEntry.bindingCount =  NV_ARRAYSIZE(bindings);
-      descriptorSetEntry.pBindings = bindings;
+      bindings.clear();
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_SCENE));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, UBO_MATRIX));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, UBO_MATERIAL));
 
-      VkDescriptorSetLayout descriptorSetLayout;
-      result = vkCreateDescriptorSetLayout(
-        m_device,
-        &descriptorSetEntry,
-        NULL,
-        &descriptorSetLayout
-        );
-      assert(result == VK_SUCCESS);
+      m_drawing.descriptorSetLayout[0] = createDescriptorSetLayout(bindings.size(), bindings.data());
 
-      m_descriptorSetLayout = descriptorSetLayout;
-
-      VkDescriptorSetLayout setLayouts[] = {m_descriptorSetLayout};
       VkPushConstantRange   pushRanges[2];
-
       pushRanges[0].stageFlags  = VK_SHADER_STAGE_VERTEX_BIT;
       pushRanges[0].size        = sizeof(int);
       pushRanges[0].offset      = 0;
@@ -502,200 +377,189 @@ namespace csfthreaded {
       pushRanges[1].size        = sizeof(int);
       pushRanges[1].offset      = sizeof(int);
 
-      layoutCreateInfo.pPushConstantRanges = pushRanges;
-      layoutCreateInfo.pushConstantRangeCount = NV_ARRAYSIZE(pushRanges);
+      m_drawing.pipelineLayout = createPipelineLayout(1, m_drawing.descriptorSetLayout, NV_ARRAY_SIZE(pushRanges), pushRanges);
   ///////////////////////////////////////////////////////////////////////////////////////////
   #endif
-
-      layoutCreateInfo.setLayoutCount = NV_ARRAYSIZE(setLayouts);
-      layoutCreateInfo.pSetLayouts = setLayouts;
-
-      VkPipelineLayout pipelineLayout;
-      result = vkCreatePipelineLayout(
-        m_device,
-        &layoutCreateInfo,
-        NULL,
-        &pipelineLayout
-        );
-      assert(result == VK_SUCCESS);
-      
-      m_pipelineLayout = pipelineLayout;
     }
+
+
+    {
+      ImGui::InitVK(m_device, *m_physical, passes.sceneUI, m_queue, m_queueFamily);
+    }
+
+    return true;
   }
 
-  void ResourcesVK::deinit(nv_helpers_gl::ProgramManager &mgr)
+  void ResourcesVK::deinit()
   {
     synchronize();
-    tempdestroyAll();
 
-    for (int i = 0; i < MAX_BUFFERED_FRAMES; i++){
-      vkDestroyFence( m_device, m_nukemFences[i], NULL);
-    }
-    vkDestroyCommandPool(m_device, m_tempCmdPool, NULL);
+    ImGui::ShutdownVK();
 
+    m_ringFences.deinit();
+    m_ringCmdPool.deinit();
+    
     deinitScene();
     deinitFramebuffer();
     deinitPipes();
-    deinitPrograms(mgr);
+    deinitPrograms();
     deinitTimers();
 
     vkDestroyRenderPass(m_device, passes.sceneClear, NULL);
     vkDestroyRenderPass(m_device, passes.scenePreserve, NULL);
+    vkDestroyRenderPass(m_device, passes.sceneUI, NULL);
 
-    vkDestroyPipelineLayout( m_device, m_pipelineLayout, NULL );
-  #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
-    for (int i = 0; i < UBOS_NUM; i++){
-      vkDestroyDescriptorSetLayout( m_device, m_descriptorSetLayout[i], NULL );
-    }
-  #else
-    vkDestroyDescriptorSetLayout( m_device, m_descriptorSetLayout, NULL );
-  #endif
+    m_drawing.deinitLayouts(m_device);
 
+    m_anim.deinitLayouts(m_device);
+    m_anim.deinitPools(m_device);
 
-    vkDestroyPipelineLayout( m_device, m_animPipelineLayout, NULL );
-    vkDestroyDescriptorSetLayout( m_device, m_animDescriptorSetLayout, NULL );
-    vkDestroyDescriptorPool( m_device, m_animDescriptorPool, NULL );
-
+  #if HAS_OPENGL
     vkDestroySemaphore(m_device, m_semImageRead, NULL);
     vkDestroySemaphore(m_device, m_semImageWritten, NULL);
-
-    vulkanContextCleanup(m_device, m_physicalDevice, m_instance);
-
-    vkDestroyDevice(m_device, NULL);
     m_device = NULL;
 
-    vkDestroyInstance(m_instance, NULL);
+    m_ctxContent.deinitContext();
+  #endif
   }
 
-  bool ResourcesVK::initPrograms( nv_helpers_gl::ProgramManager &mgr )
+  bool ResourcesVK::initPrograms(const std::string& path, const std::string& prepend)
   {
-    mgr.m_preprocessOnly = true;
-    mgr.m_prepend = std::string("#extension GL_KHR_vulkan_glsl : require \n");
+    m_shaderManager.m_device = m_device;
+    m_shaderManager.m_useNVextension = false;
+    m_shaderManager.m_filetype = nv_helpers::ShaderFileManager::FILETYPE_GLSL;
+
+    m_shaderManager.addDirectory(path);
+    m_shaderManager.addDirectory(std::string("GLSL_" PROJECT_NAME));
+    m_shaderManager.addDirectory(path + std::string(PROJECT_RELDIRECTORY));
+    m_shaderManager.addDirectory(std::string(PROJECT_ABSDIRECTORY));
+
+    m_shaderManager.registerInclude("common.h", "common.h");
+
+    m_shaderManager.m_prepend = prepend;
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
-    programids.draw_object_tris = mgr.createProgram(
-      ProgramManager::Definition(GL_VERTEX_SHADER,    "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 0\n",
-                                                      "scene.vert.glsl"),
-      ProgramManager::Definition(GL_FRAGMENT_SHADER,  "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 0\n",
-                                                      "scene.frag.glsl"));
+    moduleids.vertex_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 0\n",
+      "scene.vert.glsl"));
+    moduleids.fragment_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 0\n",
+      "scene.frag.glsl"));
 
-    programids.draw_object_line = mgr.createProgram(
-      ProgramManager::Definition(GL_VERTEX_SHADER,    "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 1\n",
-                                                      "scene.vert.glsl"),
-      ProgramManager::Definition(GL_FRAGMENT_SHADER,  "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 1\n",
-                                                      "scene.frag.glsl"));
+    moduleids.vertex_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 1\n",
+      "scene.vert.glsl"));
+    moduleids.fragment_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 1\n",
+      "scene.frag.glsl"));
+
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC
-    programids.draw_object_tris = mgr.createProgram(
-      ProgramManager::Definition(GL_VERTEX_SHADER,    "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n",
-                                                      "scene.vert.glsl"),
-      ProgramManager::Definition(GL_FRAGMENT_SHADER,  "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n",
-                                                      "scene.frag.glsl"));
+    moduleids.vertex_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n",
+      "scene.vert.glsl"));
+    moduleids.fragment_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n",
+      "scene.frag.glsl"));
 
-    programids.draw_object_line = mgr.createProgram(
-      ProgramManager::Definition(GL_VERTEX_SHADER,    "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n",
-                                                      "scene.vert.glsl"),
-      ProgramManager::Definition(GL_FRAGMENT_SHADER,  "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n",
-                                                      "scene.frag.glsl"));
+    moduleids.vertex_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n",
+      "scene.vert.glsl"));
+    moduleids.fragment_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n",
+      "scene.frag.glsl"));
+
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
 
     assert( sizeof(ObjectData) == 128 ); // offset provided to material layout
 
-    programids.draw_object_tris = mgr.createProgram(
-      ProgramManager::Definition(GL_VERTEX_SHADER,    "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n"
-                                                      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
-                                                      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
-                                                      "scene.vert.glsl"),
-      ProgramManager::Definition(GL_FRAGMENT_SHADER,  "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n"
-                                                      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
-                                                      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
-                                                      "scene.frag.glsl"));
+    moduleids.vertex_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n"
+      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
+      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
+      "scene.vert.glsl"));
+    moduleids.fragment_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n"
+      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
+      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
+      "scene.frag.glsl"));
 
-    programids.draw_object_line = mgr.createProgram(
-      ProgramManager::Definition(GL_VERTEX_SHADER,    "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n"
-                                                      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
-                                                      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
-                                                      "scene.vert.glsl"),
-      ProgramManager::Definition(GL_FRAGMENT_SHADER,  "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n"
-                                                      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
-                                                      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
-                                                      "scene.frag.glsl"));  
+    moduleids.vertex_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n"
+      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
+      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
+      "scene.vert.glsl"));
+    moduleids.fragment_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n"
+      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
+      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
+      "scene.frag.glsl"));
+
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
-    programids.draw_object_tris = mgr.createProgram(
-      ProgramManager::Definition(GL_VERTEX_SHADER,    "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n#define USE_INDEXING 1\n"
-                                                      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
-                                                      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
-                                                      "scene.vert.glsl"),
-      ProgramManager::Definition(GL_FRAGMENT_SHADER,  "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n#define USE_INDEXING 1\n"
-                                                      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
-                                                      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
-                                                      "scene.frag.glsl"));
+    moduleids.vertex_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n#define USE_INDEXING 1\n"
+      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
+      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
+      "scene.vert.glsl"));
 
-    programids.draw_object_line = mgr.createProgram(
-      ProgramManager::Definition(GL_VERTEX_SHADER,    "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n#define USE_INDEXING 1\n"
-                                                      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
-                                                      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
-                                                      "scene.vert.glsl"),
-      ProgramManager::Definition(GL_FRAGMENT_SHADER,  "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n#define USE_INDEXING 1\n"
-                                                      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
-                                                      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
-                                                      "scene.frag.glsl"));
+    moduleids.fragment_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n#define USE_INDEXING 1\n"
+      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
+      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
+      "scene.frag.glsl"));
+
+    moduleids.vertex_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n#define USE_INDEXING 1\n"
+      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
+      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
+      "scene.vert.glsl"));
+
+    moduleids.fragment_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n#define USE_INDEXING 1\n"
+      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
+      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
+      "scene.frag.glsl"));
   ///////////////////////////////////////////////////////////////////////////////////////////
   #endif
 
-    programids.compute_animation = mgr.createProgram(
-      ProgramManager::Definition(GL_COMPUTE_SHADER,   "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n"
-                                                      "#define SSBOBINDING(ssbo)  layout(std430, binding=(ssbo))\n",
-                                                      "animation.comp.glsl"));
+    moduleids.compute_animation = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_COMPUTE_BIT,
+      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n"
+      "#define SSBOBINDING(ssbo)  layout(std430, binding=(ssbo))\n",
+      "animation.comp.glsl"));
 
-    updatedPrograms(mgr);
+    bool valid = m_shaderManager.areShaderModulesValid();
 
-    return mgr.areProgramsValid();
-  }
-  void ResourcesVK::initShaders(nv_helpers_gl::ProgramManager &mgr)
-  {
-    if (shaders.vertex_line.m_value != 0){
-      deinitShaders();
+    if (valid) {
+      updatedPrograms();
     }
-    shaders.vertex_tris   = createShader(mgr, programids.draw_object_tris, GL_VERTEX_SHADER);
-    shaders.fragment_tris = createShader(mgr, programids.draw_object_tris, GL_FRAGMENT_SHADER);
-    shaders.vertex_line   = createShader(mgr, programids.draw_object_line, GL_VERTEX_SHADER);
-    shaders.fragment_line = createShader(mgr, programids.draw_object_line, GL_FRAGMENT_SHADER);
-    shaders.compute_animation = createShader(mgr, programids.compute_animation, GL_COMPUTE_SHADER);
+
+    return valid;
   }
 
-  void ResourcesVK::deinitShaders()
+  void ResourcesVK::reloadPrograms(const std::string& prepend)
   {
-    vkDestroyShaderModule(m_device, shaders.vertex_tris, NULL);
-    vkDestroyShaderModule(m_device, shaders.fragment_tris, NULL);
-    vkDestroyShaderModule(m_device, shaders.vertex_line, NULL);
-    vkDestroyShaderModule(m_device, shaders.fragment_line, NULL);
-    vkDestroyShaderModule(m_device, shaders.compute_animation, NULL);
-    shaders.vertex_line = NULL;
-    shaders.fragment_tris = NULL;
-    shaders.vertex_line = NULL;
-    shaders.fragment_line = NULL;
-    shaders.compute_animation = NULL;
+    m_shaderManager.m_prepend = prepend;
+    m_shaderManager.reloadShaderModules();
+    updatedPrograms();
+  }
+  
+  void ResourcesVK::updatedPrograms()
+  {
+    shaders.fragment_tris = m_shaderManager.get(moduleids.fragment_tris);
+    shaders.vertex_tris = m_shaderManager.get(moduleids.vertex_tris);
+    shaders.fragment_line = m_shaderManager.get(moduleids.fragment_line);
+    shaders.vertex_line = m_shaderManager.get(moduleids.vertex_line);
+    shaders.compute_animation = m_shaderManager.get(moduleids.compute_animation);
+
+    initPipes();
   }
 
-  void ResourcesVK::updatedPrograms( nv_helpers_gl::ProgramManager &mgr )
+  void ResourcesVK::deinitPrograms()
   {
-    initShaders(mgr);
-    initPipes(m_msaa);
-  }
-
-  void ResourcesVK::deinitPrograms( nv_helpers_gl::ProgramManager &mgr )
-  {
-    mgr.destroyProgram(programids.draw_object_line);
-    mgr.destroyProgram(programids.draw_object_tris);
-    mgr.destroyProgram(programids.compute_animation);
-
-    deinitShaders();
-
-    mgr.m_rawOnly = false;
+    m_shaderManager.deleteShaderModules();
   }
 
   static VkSampleCountFlagBits getSampleCountFlagBits(int msaa){
@@ -727,7 +591,7 @@ namespace csfthreaded {
     attachments[0].flags = 0;
 
     VkFormat depthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT;
-    m_physical.getOptimalDepthStencilFormat(depthStencilFormat);
+    m_physical->getOptimalDepthStencilFormat(depthStencilFormat);
 
     attachments[1].format = depthStencilFormat;
     attachments[1].samples = samplesUsed;
@@ -742,12 +606,12 @@ namespace csfthreaded {
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.inputAttachmentCount = 0;
     VkAttachmentReference colorRefs[1] = { { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
-    subpass.colorAttachmentCount = NV_ARRAYSIZE(colorRefs);
+    subpass.colorAttachmentCount = NV_ARRAY_SIZE(colorRefs);
     subpass.pColorAttachments = colorRefs;
     VkAttachmentReference depthRefs[1] = { {1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL} };
     subpass.pDepthStencilAttachment = depthRefs;
     VkRenderPassCreateInfo rpInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-    rpInfo.attachmentCount = NV_ARRAYSIZE(attachments);
+    rpInfo.attachmentCount = NV_ARRAY_SIZE(attachments);
     rpInfo.pAttachments = attachments;
     rpInfo.subpassCount = 1;
     rpInfo.pSubpasses = &subpass;
@@ -759,7 +623,47 @@ namespace csfthreaded {
     return rp;
   }
 
-  bool ResourcesVK::initFramebuffer( int width, int height, int msaa )
+
+  VkRenderPass ResourcesVK::createPassUI(int msaa)
+  {
+    // ui related
+    // two cases:
+    // if msaa we want to render into scene_color_resolved, which was DST_OPTIMAL
+    // otherwise render into scene_color, which was VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    VkImageLayout uiTargetLayout = msaa ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    // Create the ui render pass
+    VkAttachmentDescription attachments[1] = {};
+    attachments[0].format = VK_FORMAT_R8G8B8A8_UNORM;
+    attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+    attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachments[0].initialLayout = uiTargetLayout;
+    attachments[0].finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; // for blit operation
+    attachments[0].flags = 0;
+
+    VkSubpassDescription subpass = {};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.inputAttachmentCount = 0;
+    VkAttachmentReference colorRefs[1] = { { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
+    subpass.colorAttachmentCount = NV_ARRAY_SIZE(colorRefs);
+    subpass.pColorAttachments = colorRefs;
+    subpass.pDepthStencilAttachment = nullptr;
+    VkRenderPassCreateInfo rpInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+    rpInfo.attachmentCount = NV_ARRAY_SIZE(attachments);
+    rpInfo.pAttachments = attachments;
+    rpInfo.subpassCount = 1;
+    rpInfo.pSubpasses = &subpass;
+    rpInfo.dependencyCount = 0;
+
+    VkRenderPass rp;
+    VkResult result = vkCreateRenderPass(m_device, &rpInfo, NULL, &rp);
+    assert(result == VK_SUCCESS);
+    return rp;
+  }
+
+
+  bool ResourcesVK::initFramebuffer(int width, int height, int msaa, bool vsync)
   {
     VkResult result;
 
@@ -774,14 +678,17 @@ namespace csfthreaded {
     m_width   = width;
     m_height  = height;
     m_msaa    = msaa;
+    m_vsync   = vsync;
 
     if (oldmsaa != msaa){
       vkDestroyRenderPass(m_device, passes.sceneClear,    NULL);
       vkDestroyRenderPass(m_device, passes.scenePreserve, NULL);
+      vkDestroyRenderPass(m_device, passes.sceneUI,       NULL);
 
       // recreate the render passes with new msaa setting
       passes.sceneClear     = createPass( true,  msaa);
       passes.scenePreserve  = createPass( false, msaa);
+      passes.sceneUI        = createPassUI( msaa );
     }
 
 
@@ -807,7 +714,7 @@ namespace csfthreaded {
 
     // depth stencil
     VkFormat depthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT;
-    m_physical.getOptimalDepthStencilFormat(depthStencilFormat);
+    m_physical->getOptimalDepthStencilFormat(depthStencilFormat);
 
     VkImageCreateInfo dsImageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     dsImageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -838,7 +745,7 @@ namespace csfthreaded {
       resImageInfo.arrayLayers = 1;
       resImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
       resImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      resImageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+      resImageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
       resImageInfo.flags = 0;
       resImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -856,14 +763,14 @@ namespace csfthreaded {
     bool valid;
 
     vkGetImageMemoryRequirements(m_device, images.scene_color, &memReqs);
-    valid = appendMemoryAllocationInfo(memReqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_physical.memoryProperties, memInfo, cbImageOffset);
+    valid = m_physical->appendMemoryAllocationInfo(memReqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memInfo, cbImageOffset);
     assert(valid);
     vkGetImageMemoryRequirements(m_device, images.scene_depthstencil, &memReqs);
-    valid = appendMemoryAllocationInfo(memReqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_physical.memoryProperties, memInfo, dsImageOffset);
+    valid = m_physical->appendMemoryAllocationInfo(memReqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memInfo, dsImageOffset);
     assert(valid);
     if (msaa){
       vkGetImageMemoryRequirements(m_device, images.scene_color_resolved, &memReqs);
-      valid = appendMemoryAllocationInfo(memReqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_physical.memoryProperties, memInfo, resImageOffset);
+      valid = m_physical->appendMemoryAllocationInfo(memReqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memInfo, resImageOffset);
       assert(valid);
     }
 
@@ -878,6 +785,7 @@ namespace csfthreaded {
     // views after allocation handling
 
     VkImageViewCreateInfo cbImageViewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    cbImageViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
     cbImageViewInfo.format = cbImageInfo.format;
     cbImageViewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
     cbImageViewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
@@ -894,7 +802,14 @@ namespace csfthreaded {
     result = vkCreateImageView(m_device, &cbImageViewInfo, NULL, &views.scene_color);
     assert(result == VK_SUCCESS);
 
+    if (msaa) {
+      cbImageViewInfo.image = images.scene_color_resolved;
+      result = vkCreateImageView(m_device, &cbImageViewInfo, NULL, &views.scene_color_resolved);
+      assert(result == VK_SUCCESS);
+    }
+
     VkImageViewCreateInfo dsImageViewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    dsImageViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
     dsImageViewInfo.format = dsImageInfo.format;
     dsImageViewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
     dsImageViewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
@@ -914,25 +829,28 @@ namespace csfthreaded {
     {
       VkCommandBuffer cmd = createTempCmdBuffer();
 
+#if !HAS_OPENGL
+      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
+        0, NULL, 0, NULL, m_swapChain->getImageCount(), m_swapChain->getImageMemoryBarriers());
+#endif
+
       cmdImageTransition(cmd, images.scene_color, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_TRANSFER_READ_BIT, 
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-
+      
       cmdImageTransition(cmd, images.scene_depthstencil, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, 
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
       if (msaa) {
-        cmdImageTransition(cmd, images.scene_color_resolved, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT, 
-          VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        cmdImageTransition(cmd, images.scene_color_resolved, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT, 
+          VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
       }
 
       vkEndCommandBuffer(cmd);
 
       submissionEnqueue(cmd);
-      tempdestroyEnqueue(cmd);
-
       submissionExecute();
       synchronize();
-      tempdestroyAll();
+      resetTempResources();
     }
 
     {
@@ -943,7 +861,7 @@ namespace csfthreaded {
 
       VkFramebuffer fb;
       VkFramebufferCreateInfo fbInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
-      fbInfo.attachmentCount = NV_ARRAYSIZE(bindInfos);
+      fbInfo.attachmentCount = NV_ARRAY_SIZE(bindInfos);
       fbInfo.pAttachments = bindInfos;
       fbInfo.width = width;
       fbInfo.height = height;
@@ -953,6 +871,29 @@ namespace csfthreaded {
       result = vkCreateFramebuffer(m_device, &fbInfo, NULL, &fb);
       assert(result == VK_SUCCESS);
       fbos.scene = fb;
+    }
+
+
+    // ui related
+    {
+      VkImageView   uiTarget = msaa ? views.scene_color_resolved : views.scene_color;
+
+      // Create framebuffers
+      VkImageView bindInfos[1];
+      bindInfos[0] = uiTarget;
+
+      VkFramebuffer fb;
+      VkFramebufferCreateInfo fbInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+      fbInfo.attachmentCount = NV_ARRAY_SIZE(bindInfos);
+      fbInfo.pAttachments = bindInfos;
+      fbInfo.width = width;
+      fbInfo.height = height;
+      fbInfo.layers = 1;
+
+      fbInfo.renderPass = passes.sceneUI;
+      result = vkCreateFramebuffer(m_device, &fbInfo, NULL, &fb);
+      assert(result == VK_SUCCESS);
+      fbos.sceneUI = fb;
     }
 
     {
@@ -978,9 +919,12 @@ namespace csfthreaded {
       states.scissor  = sc;
     }
 
+    if (msaa != oldmsaa) {
+      ImGui::ReInitPipelinesVK(m_device, passes.sceneUI);
+    }
     if (msaa != oldmsaa && hasPipes()){
       // reinit pipelines
-      initPipes(msaa);
+      initPipes();
     }
 
     return true;
@@ -990,17 +934,21 @@ namespace csfthreaded {
   {
     synchronize();
 
-    vkDestroyImageView(m_device,  views.scene_color, NULL);
-    vkDestroyImageView(m_device,  views.scene_depthstencil, NULL);
+    vkDestroyImageView(m_device, views.scene_color, NULL);
+    vkDestroyImageView(m_device, views.scene_depthstencil, NULL);
+    
     views.scene_color = NULL;
     views.scene_depthstencil = NULL;
 
-    vkDestroyImage(m_device,  images.scene_color, NULL);
-    vkDestroyImage(m_device,  images.scene_depthstencil, NULL);
+    vkDestroyImage(m_device, images.scene_color, NULL);
+    vkDestroyImage(m_device, images.scene_depthstencil, NULL);
     images.scene_color = NULL;
     images.scene_depthstencil = NULL;
 
     if (images.scene_color_resolved){
+      vkDestroyImageView(m_device, views.scene_color_resolved, NULL);
+      views.scene_color_resolved = NULL;
+
       vkDestroyImage(m_device,  images.scene_color_resolved, NULL);
       images.scene_color_resolved = NULL;
     }
@@ -1009,45 +957,22 @@ namespace csfthreaded {
 
     vkDestroyFramebuffer(m_device, fbos.scene, NULL);
     fbos.scene = NULL;
+
+    vkDestroyFramebuffer(m_device, fbos.sceneUI, NULL);
+    fbos.sceneUI = NULL;
   }
 
-  VkShaderModule ResourcesVK::createShader( nv_helpers_gl::ProgramManager &mgr, nv_helpers_gl::ProgramManager::ProgramID pid, GLenum what)
-  {
-    const nv_helpers_gl::ProgramManager::Program& prog = mgr.getProgram(pid);
-    
-    for (size_t i = 0; i < prog.definitions.size(); i++){
-      if (prog.definitions[i].type == what){
-        VkResult result;
-        VkShaderModuleCreateInfo shaderModuleInfo = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-        shaderModuleInfo.codeSize = prog.definitions[i].preprocessed.size();
-        shaderModuleInfo.pCode    = (const uint32_t*)prog.definitions[i].preprocessed.c_str();
-
-        // we are using VK_NV_glsl_shader
-        // TODO replace this by SPIR-V generating library in future
-
-        VkShaderModule shaderModule;
-        result = vkCreateShaderModule(m_device, &shaderModuleInfo, NULL, &shaderModule);
-        assert(result == VK_SUCCESS);
-        if (result != VK_SUCCESS) {
-          return NULL;
-        }
-        return shaderModule;
-      }
-    }
-    return NULL;
-  }
-
-  void ResourcesVK::initPipes(int msaa)
+  void ResourcesVK::initPipes()
   {
     VkResult result;
-
+    
     m_pipeIncarnation++;
 
     if (hasPipes()){
       deinitPipes();
     }
 
-    VkSampleCountFlagBits samplesUsed = getSampleCountFlagBits(msaa);
+    VkSampleCountFlagBits samplesUsed = getSampleCountFlagBits(m_msaa);
     
     // Create static state info for the pipeline.
     VkVertexInputBindingDescription vertexBinding;
@@ -1066,7 +991,7 @@ namespace csfthreaded {
     VkPipelineVertexInputStateCreateInfo viStateInfo = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
     viStateInfo.vertexBindingDescriptionCount = 1;
     viStateInfo.pVertexBindingDescriptions = &vertexBinding;
-    viStateInfo.vertexAttributeDescriptionCount = NV_ARRAYSIZE(attributes);
+    viStateInfo.vertexAttributeDescriptionCount = NV_ARRAY_SIZE(attributes);
     viStateInfo.pVertexAttributeDescriptions = attributes;
 
     VkPipelineInputAssemblyStateCreateInfo iaStateInfo = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
@@ -1093,7 +1018,7 @@ namespace csfthreaded {
     // create a color blend attachment that does blending
     VkPipelineColorBlendAttachmentState cbAttachmentState[1] = { };
     cbAttachmentState[0].blendEnable = VK_FALSE;
-    cbAttachmentState[0].colorWriteMask = ~0;
+    cbAttachmentState[0].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
     // create a color blend state that does blending
     VkPipelineColorBlendStateCreateInfo cbStateInfo = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
@@ -1126,13 +1051,13 @@ namespace csfthreaded {
 
     VkPipelineDynamicStateCreateInfo dynStateInfo = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
     VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-    dynStateInfo.dynamicStateCount = NV_ARRAYSIZE(dynStates);
+    dynStateInfo.dynamicStateCount = NV_ARRAY_SIZE(dynStates);
     dynStateInfo.pDynamicStates = dynStates;
 
     {
       VkPipeline pipeline;
       VkGraphicsPipelineCreateInfo pipelineInfo = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-      pipelineInfo.layout = m_pipelineLayout;
+      pipelineInfo.layout = m_drawing.getPipeLayout();
       pipelineInfo.pVertexInputState = &viStateInfo;
       pipelineInfo.pInputAssemblyState = &iaStateInfo;
       pipelineInfo.pViewportState = &vpStateInfo;
@@ -1199,7 +1124,7 @@ namespace csfthreaded {
       stageInfo.pName = "main";
       stageInfo.module = shaders.compute_animation;
 
-      pipelineInfo.layout = m_animPipelineLayout;
+      pipelineInfo.layout = m_anim.getPipeLayout();
       pipelineInfo.stage  = stageInfo;
       result = vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
       assert(result == VK_SUCCESS);
@@ -1240,7 +1165,6 @@ namespace csfthreaded {
     assert(result == VK_SUCCESS);
     
     submissionEnqueue(timerCmd);
-    tempdestroyEnqueue(timerCmd);
   }
 
   unsigned long long ResourcesVK::TimerResult(nv_helpers::Profiler::TimerIdx idxBegin, nv_helpers::Profiler::TimerIdx idxEnd)
@@ -1268,11 +1192,11 @@ namespace csfthreaded {
   void ResourcesVK::initTimers(unsigned int numEntries)
   {
     VkResult result = VK_ERROR_INITIALIZATION_FAILED;
-    m_timeStampsSupported = m_physical.queueProperties[0].timestampValidBits;
+    m_timeStampsSupported = m_physical->queueProperties[0].timestampValidBits;
 
     if (m_timeStampsSupported)
     {
-      m_timeStampFrequency = double(m_physical.properties.limits.timestampPeriod);
+      m_timeStampFrequency = double(m_physical->properties.limits.timestampPeriod);
     }
     else
     {
@@ -1358,12 +1282,12 @@ namespace csfthreaded {
       memBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
       memBarrier.image = images.scene_color;
       memBarrier.subresourceRange = colorRange;
-      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_FALSE, 
+      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_FALSE, 
         0, NULL, 0, NULL, 1, &memBarrier);
     }
 
+  #if 1
     // Prepare the depth+stencil for reading.
-
     {
       VkImageSubresourceRange depthStencilRange;
       memset(&depthStencilRange,0,sizeof(depthStencilRange));
@@ -1382,9 +1306,10 @@ namespace csfthreaded {
       memBarrier.image = images.scene_depthstencil;
       memBarrier.subresourceRange = depthStencilRange;
 
-      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_FALSE, 
+      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_FALSE,
         0, NULL, 0, NULL, 1, &memBarrier);
     }
+  #endif
   }
 
 
@@ -1396,6 +1321,10 @@ namespace csfthreaded {
     VkImageLayout oldLayout,
     VkImageLayout newLayout) const
   {
+
+    VkPipelineStageFlags srcPipe = makeAccessMaskPipelineStageFlags(src);
+    VkPipelineStageFlags dstPipe = makeAccessMaskPipelineStageFlags(dst);
+
     VkImageSubresourceRange range;
     memset(&range,0,sizeof(range));
     range.aspectMask = aspects;
@@ -1413,7 +1342,7 @@ namespace csfthreaded {
     memBarrier.image = img;
     memBarrier.subresourceRange = range;
 
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_FALSE, 
+    vkCmdPipelineBarrier(cmd, srcPipe, dstPipe, VK_FALSE,
       0, NULL, 0, NULL, 1, &memBarrier);
   }
 
@@ -1425,7 +1354,6 @@ namespace csfthreaded {
     // Create the command buffer.
     VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     cmdInfo.commandPool = pool;
-    assert(cmdInfo.commandPool);
     cmdInfo.level = primary ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
     cmdInfo.commandBufferCount = 1;
     VkCommandBuffer cmd;
@@ -1434,6 +1362,13 @@ namespace csfthreaded {
 
     cmdBegin(cmd, singleshot, primary, secondaryInClear);
 
+    return cmd;
+  }
+
+  VkCommandBuffer ResourcesVK::createTempCmdBuffer(bool primary/*=true*/, bool secondaryInClear/*=false*/)
+  {
+    VkCommandBuffer cmd = m_ringCmdPool.createCommandBuffer(primary ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY);
+    cmdBegin(cmd, true, primary, secondaryInClear);
     return cmd;
   }
 
@@ -1460,136 +1395,40 @@ namespace csfthreaded {
     assert(result == VK_SUCCESS);
   }
 
-  void ResourcesVK::tempdestroyEnqueue( VkCommandBuffer cmdbuffer )
-  {
-    int current = m_frame % MAX_BUFFERED_FRAMES;
-    m_doomedCmdBuffers[current].push_back( cmdbuffer );
-  }
-  void ResourcesVK::tempdestroyAll()
+  void ResourcesVK::resetTempResources()
   {
     synchronize();
-    for (int f = 0; f < MAX_BUFFERED_FRAMES; f++){
-      if (!m_doomedCmdBuffers[f].empty()){
-        vkFreeCommandBuffers( m_device, m_tempCmdPool, (uint32_t)m_doomedCmdBuffers[f].size(), &m_doomedCmdBuffers[f][0]);
-        m_doomedCmdBuffers[f].clear();
-      }
-    }
-    vkResetFences(m_device, MAX_BUFFERED_FRAMES, m_nukemFences);
-    m_frame = 0;
-  }
-  void ResourcesVK::tempdestroyPastFrame(int past)
-  {
-#if 0
-    VkResult result = vkGetFenceStatus(m_device, m_nukemFences[past]);
-    if (result != VK_SUCCESS){
-      printf("WAIT FOR FENCE\n");
-    }
-#endif
-    vkWaitForFences(m_device, 1, &m_nukemFences[past], true, ~0ULL);
-    vkResetFences  (m_device, 1, &m_nukemFences[past]);
-    
-    // not exactly efficient, should do per pool processing
-    vkFreeCommandBuffers( m_device, m_tempCmdPool, (uint32_t)m_doomedCmdBuffers[past].size(), m_doomedCmdBuffers[past].data());
-    m_doomedCmdBuffers[past].clear();
+    m_ringFences.reset();
+    m_ringCmdPool.reset(VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
   }
 
-
-
-  size_t ResourcesVK::StagingBuffer::append( size_t sz, const void* data, ResourcesVK& res )
+  void ResourcesVK::flushStaging(nv_helpers_vk::BasicStagingBuffer& staging)
   {
-    if (m_used+sz > m_allocated){
-      size_t oldsize = m_allocated;
+    if (staging.canFlush()) {
+      VkCommandBuffer cmd = createTempCmdBuffer();
+      staging.flush(cmd);
+      vkEndCommandBuffer(cmd);
 
-      if (m_allocated){
-        deinit();
-      }
-
-      m_allocated = std::max(sz, std::min(oldsize * 2, size_t(1024*1024*32)));
-
-      VkResult result;
-      // Create staging buffer
-      VkBufferCreateInfo bufferStageInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-      bufferStageInfo.size  = m_allocated;
-      bufferStageInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-      bufferStageInfo.flags = 0;
-
-      result = vkCreateBuffer(m_device, &bufferStageInfo, NULL, &m_buffer);
-      assert(result == VK_SUCCESS);
-
-      result = res.allocMemAndBindBuffer(m_buffer, m_mem, (VkFlags)VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-      assert(result == VK_SUCCESS);
-
-      result = vkMapMemory(m_device, m_mem, 0, m_allocated, 0, (void**)&m_mapping);
-      assert(result == VK_SUCCESS);
-
-      m_used = 0;
-    }
-
-    size_t offset = m_used;
-    memcpy(&m_mapping[offset], data, sz);
-    m_used += sz;
-
-    return offset;
-  }
-
-  void ResourcesVK::StagingBuffer::deinit()
-  {
-    if (m_allocated){
-      vkUnmapMemory(m_device,m_mem);
-      vkDestroyBuffer(m_device, m_buffer, NULL);
-      vkFreeMemory(m_device, m_mem, NULL);
-      m_buffer = NULL;
-      m_mapping = NULL;
-      m_allocated = 0;
-    }
-  }
-
-  VkResult ResourcesVK::fillBuffer( StagingBuffer& staging, VkBuffer buffer, size_t offset, size_t size,  const void* data )
-  {
-    if (!size) return VK_SUCCESS;
-
-    if (staging.needSync(size)){
+      submissionEnqueue(cmd);
       submissionExecute();
+
       synchronize();
-      tempdestroyAll();
+      resetTempResources();
+    }
+  }
+  
+  void ResourcesVK::fillBuffer(nv_helpers_vk::BasicStagingBuffer& staging, VkBuffer buffer, size_t offset, size_t size,  const void* data )
+  {
+    if (!size) return;
+
+    if (staging.cannotEnqueue(size)) {
+      flushStaging(staging);
     }
 
-    size_t offsetsrc = staging.append( size, data, *this);
-
-    VkCommandBuffer cmd = createTempCmdBuffer();
-
-    VkBufferCopy copy;
-    copy.size   = size;
-    copy.dstOffset = offset;
-    copy.srcOffset  = offsetsrc;
-    vkCmdCopyBuffer(cmd, staging.getBuffer(), buffer, 1, &copy);
-
-    VkResult result;
-    result = vkEndCommandBuffer(cmd);
-    assert(result == VK_SUCCESS);
-
-    submissionEnqueue(cmd);
-    tempdestroyEnqueue(cmd);
-    
-    return result;
+    staging.enqueue(buffer, offset, size, data);
   }
 
-  VkBuffer ResourcesVK::createBuffer(size_t size, VkFlags usage)
-  {
-    VkResult result;
-    VkBuffer buffer;
-    VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-    bufferInfo.size  = size;
-    bufferInfo.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    bufferInfo.flags = 0;
-
-    result = vkCreateBuffer(m_device, &bufferInfo, NULL, &buffer);
-    assert(result == VK_SUCCESS);
-
-    return buffer;
-  }
-
-  VkBuffer ResourcesVK::createAndFillBuffer(StagingBuffer& staging, size_t size, const void* data, VkFlags usage, VkDeviceMemory &bufferMem, VkFlags memProps)
+  VkBuffer ResourcesVK::createAndFillBuffer(nv_helpers_vk::BasicStagingBuffer& staging, size_t size, const void* data, VkFlags usage, VkDeviceMemory &bufferMem, VkFlags memProps)
   {
     VkResult result;
     VkBuffer buffer;
@@ -1605,24 +1444,13 @@ namespace csfthreaded {
     assert(result == VK_SUCCESS);
 
     if (data){
-      result = fillBuffer(staging, buffer, 0, size, data);
+      fillBuffer(staging, buffer, 0, size, data);
     }
 
     return buffer;
   }
-
-
-  VkDescriptorBufferInfo ResourcesVK::createBufferInfo( VkBuffer buffer, VkDeviceSize size, VkDeviceSize offset )
-  {
-    VkDescriptorBufferInfo info;
-    info.buffer = buffer;
-    info.offset = offset;
-    info.range  = size;
-
-    return info;
-  }
-
-  bool ResourcesVK::initScene( const CadScene& cadscene)
+  
+  bool ResourcesVK::initScene(const CadScene& cadscene)
   {
     m_numMatrices = uint(cadscene.m_matrices.size());
 
@@ -1630,11 +1458,9 @@ namespace csfthreaded {
 
     if (m_geometry.empty()) return true;
 
-    VkResult result;
 
-    StagingBuffer staging;
-    staging.init(m_device);
-
+    nv_helpers_vk::BasicStagingBuffer staging;
+    staging.init(m_device, &m_physical->memoryProperties);
 
   #if USE_SINGLE_GEOMETRY_BUFFERS
     size_t vbosizeAligned = 0;
@@ -1651,26 +1477,26 @@ namespace csfthreaded {
       Geometry&                   geom = m_geometry[i];
 
       if (cgeom.cloneIdx < 0) {
-        geom.vboSize = cgeom.vboSize;
-        geom.iboSize = cgeom.iboSize;
+        geom.vbo.size = cgeom.vboSize;
+        geom.ibo.size = cgeom.iboSize;
 
       #if USE_SINGLE_GEOMETRY_BUFFERS
-        geom.vboOffset = vbosizeAligned;
-        geom.iboOffset = ibosizeAligned;
+        geom.vbo.offset = vbosizeAligned;
+        geom.ibo.offset = ibosizeAligned;
 
         size_t vboAlignment = 16;
         size_t iboAlignment = 4;
         vbosizeAligned += ((cgeom.vboSize+vboAlignment-1)/vboAlignment)*vboAlignment;
         ibosizeAligned += ((cgeom.iboSize+iboAlignment-1)/iboAlignment)*iboAlignment;
       #else
-        geom.vbo = createBuffer(geom.vboSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        geom.vbo.buffer = createBuffer(geom.vbo.size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
         vkGetBufferMemoryRequirements(m_device, geom.vbo, &memReqsVbo);
-        valid = appendMemoryAllocationInfo(memReqsVbo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_physical.memoryProperties, memInfoVbo, geom.vboOffset);
+        valid = m_physical.appendMemoryAllocationInfo(memReqsVbo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memInfoVbo, geom.vbo.offset);
         assert(valid);
 
-        geom.ibo = createBuffer(geom.iboSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        geom.ibo.buffer = createBuffer(geom.ibo.size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
         vkGetBufferMemoryRequirements(m_device, geom.ibo, &memReqsIbo);
-        valid = appendMemoryAllocationInfo(memReqsIbo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_physical.memoryProperties, memInfoIbo, geom.iboOffset);
+        valid = m_physical.appendMemoryAllocationInfo(memReqsIbo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memInfoIbo, geom.ibo.offset);
         assert(valid);
       #endif
       }
@@ -1692,22 +1518,11 @@ namespace csfthreaded {
       Geometry&                   geom = m_geometry[i];
 
       if (cgeom.cloneIdx < 0) {
-      #if USE_SINGLE_GEOMETRY_BUFFERS
-        geom.vbo = buffers.vbo;
-        geom.ibo = buffers.ibo;
-        fillBuffer(staging,buffers.vbo, geom.vboOffset, geom.vboSize, &cgeom.vertices[0]);
-        fillBuffer(staging,buffers.ibo, geom.iboOffset, geom.iboSize, &cgeom.indices[0]);
-      #else
-        result = vkBindBufferMemory(m_device, geom.vbo, mem.vbo, geom.vboOffset);
-        assert(result == VK_SUCCESS);
-        result = vkBindBufferMemory(m_device, geom.ibo, mem.ibo, geom.iboOffset);
-        assert(result == VK_SUCCESS);
-        geom.vboOffset = 0;
-        geom.iboOffset = 0;
+        geom.vbo.buffer = buffers.vbo;
+        geom.ibo.buffer = buffers.ibo;
+        fillBuffer(staging,buffers.vbo, geom.vbo.offset, geom.vbo.size, cgeom.vertices);
+        fillBuffer(staging,buffers.ibo, geom.ibo.offset, geom.ibo.size, cgeom.indices);
 
-        fillBuffer(staging, geom.vbo, 0, geom.vboSize, &cgeom.vertices[0]);
-        fillBuffer(staging, geom.ibo, 0, geom.iboSize, &cgeom.indices[0]);
-      #endif
       }
       else{
         geom = m_geometry[cgeom.cloneIdx];
@@ -1716,157 +1531,73 @@ namespace csfthreaded {
     }
 
     buffers.scene       = createAndFillBuffer(staging,sizeof(SceneData), NULL, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, mem.scene);
-    views.scene         = createBufferInfo(buffers.scene, sizeof(SceneData));
+    views.scene         = makeDescriptorBufferInfo(buffers.scene, sizeof(SceneData));
 
     buffers.anim        = createAndFillBuffer(staging,sizeof(AnimationData), NULL, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, mem.anim);
-    views.anim          = createBufferInfo(buffers.anim, sizeof(AnimationData));
+    views.anim          = makeDescriptorBufferInfo(buffers.anim, sizeof(AnimationData));
 
     // FIXME, atm sizes must match, but cleaner solution is creating a temp strided memory block for material & matrix
     assert(sizeof(CadScene::MatrixNode) == m_alignedMatrixSize);
     assert(sizeof(CadScene::Material)   == m_alignedMaterialSize);
 
-    buffers.materials   = createAndFillBuffer(staging,cadscene.m_materials.size() * sizeof(CadScene::Material), &cadscene.m_materials[0], VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, mem.materials);
-    views.materials     = createBufferInfo(buffers.materials, sizeof(CadScene::Material));
-    views.materialsFull = createBufferInfo(buffers.materials, sizeof(CadScene::Material) * cadscene.m_materials.size());
+    buffers.materials   = createAndFillBuffer(staging,cadscene.m_materials.size() * sizeof(CadScene::Material), cadscene.m_materials.data(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, mem.materials);
+    views.materials     = makeDescriptorBufferInfo(buffers.materials, sizeof(CadScene::Material));
+    views.materialsFull = makeDescriptorBufferInfo(buffers.materials, sizeof(CadScene::Material) * cadscene.m_materials.size());
 
-    buffers.matrices    = createAndFillBuffer (staging,cadscene.m_matrices.size() * sizeof(CadScene::MatrixNode), &cadscene.m_matrices[0], VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, mem.matrices);
-    views.matrices      = createBufferInfo(buffers.matrices, sizeof(CadScene::MatrixNode));
-    views.matricesFull  = createBufferInfo(buffers.matrices, sizeof(CadScene::MatrixNode) * cadscene.m_matrices.size());
+    buffers.matrices    = createAndFillBuffer (staging,cadscene.m_matrices.size() * sizeof(CadScene::MatrixNode), cadscene.m_matrices.data(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, mem.matrices);
+    views.matrices      = makeDescriptorBufferInfo(buffers.matrices, sizeof(CadScene::MatrixNode));
+    views.matricesFull  = makeDescriptorBufferInfo(buffers.matrices, sizeof(CadScene::MatrixNode) * cadscene.m_matrices.size());
 
-    buffers.matricesOrig   = createAndFillBuffer (staging,cadscene.m_matrices.size() * sizeof(CadScene::MatrixNode), &cadscene.m_matrices[0], VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, mem.matricesOrig);
-    views.matricesFullOrig = createBufferInfo(buffers.matricesOrig, sizeof(CadScene::MatrixNode) * cadscene.m_matrices.size());
+    buffers.matricesOrig   = createAndFillBuffer (staging,cadscene.m_matrices.size() * sizeof(CadScene::MatrixNode), cadscene.m_matrices.data(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, mem.matricesOrig);
+    views.matricesFullOrig = makeDescriptorBufferInfo(buffers.matricesOrig, sizeof(CadScene::MatrixNode) * cadscene.m_matrices.size());
 
-    submissionExecute();
-    synchronize();
-    tempdestroyAll();
+    flushStaging(staging);
     staging.deinit();
 
     {
   //////////////////////////////////////////////////////////////////////////
   // Allocation phase
   //////////////////////////////////////////////////////////////////////////
-  #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
-      // multiple descriptorsets
-      VkDescriptorPoolSize type_counts[UBOS_NUM];
-      type_counts[UBO_SCENE].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      type_counts[UBO_SCENE].descriptorCount = 1;
-      type_counts[UBO_MATRIX].type = (UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      type_counts[UBO_MATRIX].descriptorCount = 1;
-      type_counts[UBO_MATERIAL].type = (UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      type_counts[UBO_MATERIAL].descriptorCount = 1;
+      std::vector<VkDescriptorPoolSize> poolSizes;
 
-      // create multiple pools for simplicity (could do a single if all have same type)
-      uint32_t maxcounts[UBOS_NUM];
-      VkDescriptorSet* setstores[UBOS_NUM];
+  #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
+
+      poolSizes.clear();
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,1 });
+      m_drawing.initPoolAndSets(m_device, 1, poolSizes.size(), poolSizes.data(), UBO_SCENE);
 
     #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
-      maxcounts[UBO_SCENE]    = 1;
-      maxcounts[UBO_MATRIX]   = 1;
-      maxcounts[UBO_MATERIAL] = 1;
+      poolSizes.clear();
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1 });
+      m_drawing.initPoolAndSets(m_device, 1, poolSizes.size(), poolSizes.data(), UBO_MATRIX);
 
-      setstores[UBO_SCENE]     = &m_descriptorSet[UBO_SCENE];
-      setstores[UBO_MATRIX]    = &m_descriptorSet[UBO_MATRIX];
-      setstores[UBO_MATERIAL]  = &m_descriptorSet[UBO_MATERIAL];
+      poolSizes.clear();
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1 });
+      m_drawing.initPoolAndSets(m_device, 1, poolSizes.size(), poolSizes.data(), UBO_MATERIAL);
     #else
-      maxcounts[UBO_SCENE]    = 1;
-      maxcounts[UBO_MATRIX]   = cadscene.m_matrices.size();
-      maxcounts[UBO_MATERIAL] = cadscene.m_materials.size();
+      poolSizes.clear();
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
+      m_drawing.initPoolAndSets(m_device, cadscene.m_matrices.size(), poolSizes.size(), poolSizes.data(), UBO_MATRIX);
 
-      m_descriptorSetsMaterials.resize( cadscene.m_materials.size() );
-      m_descriptorSetsMatrices. resize( cadscene.m_matrices.size() );
-
-      setstores[UBO_SCENE]     = &m_descriptorSet[UBO_SCENE];
-      setstores[UBO_MATRIX]    = &m_descriptorSetsMatrices[0];
-      setstores[UBO_MATERIAL]  = &m_descriptorSetsMaterials[0];
+      poolSizes.clear();
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
+      m_drawing.initPoolAndSets(m_device, cadscene.m_materials.size(), poolSizes.size(), poolSizes.data(), UBO_MATERIAL);
     #endif
-
-      for (int i = 0; i < UBOS_NUM; i++){
-        VkDescriptorPool descrPool;
-        VkDescriptorPoolCreateInfo descrPoolInfo = { };
-        descrPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        descrPoolInfo.pNext = NULL;
-        descrPoolInfo.maxSets =  maxcounts[i];
-        descrPoolInfo.poolSizeCount = 1;
-        descrPoolInfo.pPoolSizes = &type_counts[i];
-
-        // scene pool
-        result = vkCreateDescriptorPool(m_device, &descrPoolInfo, NULL, &descrPool);
-        assert(result == VK_SUCCESS);
-        m_descriptorPools[i] = descrPool;
-
-        for (uint32_t n = 0; n < maxcounts[i]; n++){
-
-          VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-          allocInfo.descriptorPool = descrPool;
-          allocInfo.descriptorSetCount = 1;
-          allocInfo.pSetLayouts    = m_descriptorSetLayout + i;
-
-          // do one at a time, as we don't have layouts in maxcounts-many pointer array
-          result = vkAllocateDescriptorSets(m_device, &allocInfo, setstores[i] + n);
-          assert(result == VK_SUCCESS);
-        }
-      }
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC
-      // single descritptorset 
-      VkDescriptorPoolSize type_counts[UBOS_NUM];
-      type_counts[UBO_SCENE].type = UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      type_counts[UBO_SCENE].descriptorCount = 1;
-      type_counts[UBO_MATRIX].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-      type_counts[UBO_MATRIX].descriptorCount = 1;
-      type_counts[UBO_MATERIAL].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-      type_counts[UBO_MATERIAL].descriptorCount = 1;
 
-      VkDescriptorPool descrPool;
-      VkDescriptorPoolCreateInfo descrPoolInfo;
-      memset(&descrPoolInfo,0,sizeof(descrPoolInfo));
-
-      descrPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-      descrPoolInfo.pNext = NULL;
-      descrPoolInfo.poolSizeCount = NV_ARRAYSIZE(type_counts);
-      descrPoolInfo.pPoolSizes = type_counts;
-      descrPoolInfo.maxSets = 1;
-      
-      result = vkCreateDescriptorPool(m_device, &descrPoolInfo, NULL, &descrPool);
-      assert(result == VK_SUCCESS);
-      m_descriptorPool = descrPool;
-
-      VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-      allocInfo.descriptorPool = descrPool;
-      allocInfo.setLayoutCount = 1;
-      allocInfo.pSetLayouts    = &m_descriptorSetLayout;
-
-      result = vkAllocateDescriptorSets(m_device, &allocInfo, &m_descriptorSet);
-      assert(result == VK_SUCCESS);
+      poolSizes.clear();
+      poolSizes.push_back({ UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1 });
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1 });
+      m_drawing.initPoolAndSets(m_device, 1, poolSizes.size(), poolSizes.data(), 0);
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
-      // single descritptorset 
-      VkDescriptorPoolSize type_counts[1];
-      type_counts[UBO_SCENE].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      type_counts[UBO_SCENE].descriptorCount = 1;
-
-      VkDescriptorPool descrPool;
-      VkDescriptorPoolCreateInfo descrPoolInfo;
-      memset(&descrPoolInfo,0,sizeof(descrPoolInfo));
-      descrPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-      descrPoolInfo.pNext = NULL;
-      descrPoolInfo.poolSizeCount = NV_ARRAYSIZE(type_counts);
-      descrPoolInfo.pPoolSizes = type_counts;
-      descrPoolInfo.maxSets = 1;
-      
-      result = vkCreateDescriptorPool(m_device, &descrPoolInfo, NULL, &descrPool);
-      assert(result == VK_SUCCESS);
-      m_descriptorPool = descrPool;
-
-      VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-      allocInfo.descriptorPool = descrPool;
-      allocInfo.descriptorSetCount = 1;
-      allocInfo.pSetLayouts    = &m_descriptorSetLayout;
-
-      result = vkAllocateDescriptorSets(m_device, &allocInfo, &m_descriptorSet);
-      assert(result == VK_SUCCESS);
+      poolSizes.clear();
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
+      m_drawing.initPoolAndSets(m_device, 1, poolSizes.size(), poolSizes.data(), 0);
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
@@ -1916,7 +1647,7 @@ namespace csfthreaded {
         updateDescriptors[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         updateDescriptors[i].pNext = NULL;
         updateDescriptors[i].descriptorType = (i == UBO_SCENE) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-        updateDescriptors[i].dstSet = m_descriptorSet[i];
+        updateDescriptors[i].dstSet = m_drawing.descriptorSets[i][0];;
         updateDescriptors[i].dstBinding = 0;
         updateDescriptors[i].dstArrayElement = 0;
         updateDescriptors[i].descriptorCount = 1;
@@ -1983,7 +1714,7 @@ namespace csfthreaded {
         updateDescriptors[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         updateDescriptors[i].pNext = NULL;
         updateDescriptors[i].descriptorType = UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC || (UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC && i > UBO_SCENE ) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        updateDescriptors[i].dstSet = m_descriptorSet;
+        updateDescriptors[i].dstSet = m_drawing.descriptorSets[0][0];
         updateDescriptors[i].dstBinding = i;
         updateDescriptors[i].dstArrayElement = 0;
         updateDescriptors[i].descriptorCount = 1;
@@ -1999,7 +1730,7 @@ namespace csfthreaded {
         updateDescriptors[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         updateDescriptors[i].pNext = NULL;
         updateDescriptors[i].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        updateDescriptors[i].dstSet = m_descriptorSet;
+        updateDescriptors[i].dstSet = m_drawing.descriptorSets[0][0];
         updateDescriptors[i].dstBinding = i;
         updateDescriptors[i].dstArrayElement = 0;
         updateDescriptors[i].descriptorCount = 1;
@@ -2018,7 +1749,7 @@ namespace csfthreaded {
         updateDescriptors[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         updateDescriptors[i].pNext = NULL;
         updateDescriptors[i].descriptorType = (i == UBO_MATRIX || i == UBO_MATERIAL ) ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        updateDescriptors[i].dstSet = m_descriptorSet;
+        updateDescriptors[i].dstSet = m_drawing.descriptorSets[0][0];
         updateDescriptors[i].dstBinding = i;
         updateDescriptors[i].dstArrayElement = 0;
         updateDescriptors[i].descriptorCount = 1;
@@ -2041,7 +1772,7 @@ namespace csfthreaded {
         updateDescriptors[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         updateDescriptors[i].pNext = NULL;
         updateDescriptors[i].descriptorType = i == UBO_ANIM ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        updateDescriptors[i].dstSet = m_animDescriptorSet;
+        updateDescriptors[i].dstSet = m_anim.descriptorSets[0][0];
         updateDescriptors[i].dstBinding = i;
         updateDescriptors[i].dstArrayElement = 0;
         updateDescriptors[i].descriptorCount = 1;
@@ -2074,8 +1805,8 @@ namespace csfthreaded {
       Geometry&                   geom = m_geometry[i];
       if (geom.cloneIdx < 0){
 #if !USE_SINGLE_GEOMETRY_BUFFERS
-        vkDestroyBuffer(m_device, geom.vbo, NULL);
-        vkDestroyBuffer(m_device, geom.ibo, NULL);
+        vkDestroyBuffer(m_device, geom.vbo.buffer, NULL);
+        vkDestroyBuffer(m_device, geom.ibo.buffer, NULL);
 #endif
       }
     }
@@ -2086,25 +1817,12 @@ namespace csfthreaded {
     vkFreeMemory(m_device, mem.vbo, NULL);
     vkFreeMemory(m_device, mem.ibo, NULL);
 
-#if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
-    
-    for (size_t i = 0; i < UBOS_NUM; i++){
-      vkDestroyDescriptorPool( m_device, m_descriptorPools[i], NULL );
-    }
-#elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
-    for (size_t i = 0; i < UBOS_NUM; i++){
-      vkDestroyDescriptorPool( m_device, m_descriptorPools[i], NULL );
-    }
-#else
-    vkDestroyDescriptorPool( m_device, m_descriptorPool, NULL );
-#endif
-
+    m_drawing.deinitPools(m_device);
   }
 
   void ResourcesVK::synchronize()
   {
     vkDeviceWaitIdle(m_device);
-    //vkQueueWaitIdle(m_queue);
   }
 
   nv_math::mat4f ResourcesVK::perspectiveProjection( float fovy, float aspect, float nearPlane, float farPlane) const
@@ -2145,14 +1863,14 @@ namespace csfthreaded {
     return M;
   }
 
-  void ResourcesVK::animation( Global& global )
+  void ResourcesVK::animation(const Global& global)
   {
     VkCommandBuffer cmd = createTempCmdBuffer();
 
-    vkCmdUpdateBuffer(cmd, buffers.anim, 0, sizeof(AnimationData), (uint32_t*)&global.animUbo);
+    vkCmdUpdateBuffer(cmd, buffers.anim, 0, sizeof(AnimationData), (const uint32_t*)&global.animUbo);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipes.compute_animation);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_animPipelineLayout, 0, 1, &m_animDescriptorSet, 0, 0);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_anim.getPipeLayout(), 0, 1, m_anim.getSets(), 0, 0);
     vkCmdDispatch( cmd, (m_numMatrices + ANIMATION_WORKGROUPSIZE - 1)/ANIMATION_WORKGROUPSIZE, 1, 1 );
 
     VkBufferMemoryBarrier memBarrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
@@ -2166,7 +1884,6 @@ namespace csfthreaded {
     vkEndCommandBuffer(cmd);
 
     submissionEnqueue(cmd);
-    tempdestroyEnqueue(cmd);
   }
 
   void ResourcesVK::animationReset()
@@ -2179,15 +1896,7 @@ namespace csfthreaded {
     vkCmdCopyBuffer(cmd, buffers.matricesOrig, buffers.matrices, 1, &copy);
     vkEndCommandBuffer(cmd);
 
-#if 0
-    // directly execute the reset
-    VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmd;
-    vkQueueSubmit(m_queue, 1, &submitInfo, NULL);
-#endif
     submissionEnqueue(cmd);
-    tempdestroyEnqueue(cmd);
   }
 }
 

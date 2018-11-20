@@ -1,26 +1,30 @@
-/*-----------------------------------------------------------------------
-  Copyright (c) 2014-2016, NVIDIA. All rights reserved.
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
-  are met:
-   * Redistributions of source code must retain the above copyright
-     notice, this list of conditions and the following disclaimer.
-   * Neither the name of its contributors may be used to endorse 
-     or promote products derived from this software without specific
-     prior written permission.
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-  PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------*/
-/* Contact ckubisch@nvidia.com (Christoph Kubisch) for feedback */
+/* Copyright (c) 2014-2018, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 
 
 #ifndef RENDERER_H__
@@ -33,7 +37,6 @@
 #define GL_UNIFORM_BUFFER_LENGTH_NV                         0x9370
 
 #include "resources.hpp"
-#include <nv_helpers_gl/programmanager.hpp>
 #include <nv_helpers/profiler.hpp>
 
 #include "threadpool.hpp"
@@ -56,6 +59,13 @@ namespace csfthreaded {
 
   class Renderer {
   public:
+    struct Config {
+      Strategy  strategy;
+      uint32_t  objectFrom;
+      uint32_t  objectNum;
+      bool      sorted;
+      int       threads;
+    };
   
     struct DrawItem {
       bool                solid;
@@ -84,8 +94,6 @@ namespace csfthreaded {
       }
 
     public:
-      virtual bool loadPrograms( nv_helpers_gl::ProgramManager &mgr ) { return true; }
-      virtual void updatedPrograms( nv_helpers_gl::ProgramManager &mgr ) { }
       virtual bool isAvailable() const = 0;
       virtual const char* name() const = 0;
       virtual Renderer* create() const = 0;
@@ -105,17 +113,16 @@ namespace csfthreaded {
    static ThreadPool   s_threadpool;
 
   public:
-    virtual void init(const CadScene* NVP_RESTRICT scene, Resources* resources) {}
+    virtual void init(const CadScene* NV_RESTRICT scene, Resources* resources, const Config& config) {}
     virtual void deinit() {}
-    virtual void draw(ShadeType shadetype, Resources* NVP_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler, nv_helpers_gl::ProgramManager &progManager ) {}
-    virtual void blit(ShadeType shadetype, Resources* NVP_RESTRICT resources, const Resources::Global& global) {}
+    virtual void draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler ) {}
 
     virtual ~Renderer() {}
     
-    void fillDrawItems( std::vector<DrawItem>& drawItems, double percentage, bool solid, bool wire);
+    void fillDrawItems( std::vector<DrawItem>& drawItems, const Config& config, bool solid, bool wire);
 
-    Strategy                    m_strategy;
-    const CadScene* NVP_RESTRICT  m_scene;
+    Config                        m_config;
+    const CadScene* NV_RESTRICT  m_scene;
 
     
   };

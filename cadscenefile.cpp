@@ -1,28 +1,29 @@
-/*-----------------------------------------------------------------------
-  Copyright (c) 2011-2016, NVIDIA. All rights reserved.
-
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
-  are met:
-   * Redistributions of source code must retain the above copyright
-     notice, this list of conditions and the following disclaimer.
-   * Neither the name of its contributors may be used to endorse 
-     or promote products derived from this software without specific
-     prior written permission.
-
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-  PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------*/
-
+/* Copyright (c) 2011-2018, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
 #include <assert.h>
 #include <stdio.h>
@@ -33,17 +34,21 @@
 #include <zlib.h>
 #endif
 
+#include <mutex>
+
 #include <string.h> // for memcpy
 #include <stddef.h> // for memcpy
 #include "cadscenefile.h"
 #include <NvFoundation.h>
+
+#define CADSCENEFILE_MAGIC 1567262451
 
 #ifdef WIN32
 #define FREAD(a,b,c,d,e) fread_s(a,b,c,d,e)
 #else
 #define FREAD(a,b,c,d,e) fread(a,c,d,e)
 #endif
-#define CADSCENEFILE_MAGIC 1567262451
+
 #if defined(WIN32) && (defined(__amd64__) || defined(__x86_64__) || defined(_M_X64) || defined(__AMD64__))
 #define xftell(f) _ftelli64(f)
 #define xfseek(f,pos,encoded) _fseeki64(f,pos,encoded)
@@ -54,15 +59,21 @@
 
 struct CSFileMemory_s
 {
-  std::vector<void*>    m_allocations;
+  std::vector<void*>  m_allocations;
+  std::mutex          m_mutex;
 
-  void* alloc(size_t size, const void* indata=NULL)
+  void* alloc(size_t size, const void* indata=nullptr, size_t indataSize = 0)
   {
     void* data = malloc(size);
     if (indata){
-      memcpy(data,indata,size);
+      indataSize = indataSize ? indataSize : size;
+      memcpy(data,indata, indataSize);
     }
-    m_allocations.push_back(data);
+
+    {
+      std::lock_guard<std::mutex> lock(m_mutex);
+      m_allocations.push_back(data);
+    }
     return data;
   }
 
@@ -88,6 +99,17 @@ CSFAPI void* CSFileMemory_alloc(CSFileMemoryPTR mem, size_t sz, const void*fill)
   return mem->alloc(sz,fill);
 }
 
+
+CSFAPI void* CSFileMemory_allocPartial(CSFileMemoryPTR mem, size_t sz, size_t szPartial, const void* fillPartial)
+{
+  return mem->alloc(sz, fillPartial, szPartial);
+}
+
+static int CSFile_invalidVersion(const CSFile* csf)
+{
+  return csf->magic != CADSCENEFILE_MAGIC || csf->version < CADSCENEFILE_VERSION_COMPAT || csf->version > CADSCENEFILE_VERSION;
+}
+
 static size_t CSFile_getHeaderSize( const CSFile* csf )
 {
   if (csf->version >= CADSCENEFILE_VERSION_META){
@@ -100,7 +122,7 @@ static size_t CSFile_getHeaderSize( const CSFile* csf )
 
 static size_t CSFile_getRawSize(const CSFile* csf)
 {
-  if (csf->magic != CADSCENEFILE_MAGIC || csf->version < CADSCENEFILE_VERSION_COMPAT || csf->version > CADSCENEFILE_VERSION) return 0;
+  if (CSFile_invalidVersion(csf)) return 0;
 
   return csf->pointersOFFSET + csf->numPointers * sizeof(CSFoffset);
 }
@@ -110,7 +132,7 @@ CSFAPI int     CSFile_loadRaw (CSFile** outcsf, size_t size, void* dataraw)
   char* data  = (char*)dataraw;
   CSFile* csf = (CSFile*)data;
 
-  if (size < sizeof(CSFile) || csf->magic != CADSCENEFILE_MAGIC || (csf->version < CADSCENEFILE_VERSION_COMPAT || csf->version > CADSCENEFILE_VERSION)){
+  if (size < sizeof(CSFile) || CSFile_invalidVersion(csf)){
     *outcsf = 0;
     return CADSCENEFILE_ERROR_VERSION;
   }
@@ -121,7 +143,7 @@ CSFAPI int     CSFile_loadRaw (CSFile** outcsf, size_t size, void* dataraw)
     return CADSCENEFILE_ERROR_VERSION;
   }
 
-  if (csf->version < 3){
+  if (csf->version < CADSCENEFILE_VERSION_FILEFLAGS){
     csf->fileFlags = csf->fileFlags ? CADSCENEFILE_FLAG_UNIQUENODES : 0;
   }
 
@@ -131,13 +153,23 @@ CSFAPI int     CSFile_loadRaw (CSFile** outcsf, size_t size, void* dataraw)
     *(ptr) += (CSFoffset)csf;
   }
 
-  if (csf->version < 4){
+  if (csf->version < CADSCENEFILE_VERSION_PARTNODEIDX){
     for (int i = 0; i < csf->numNodes; i++){
       for (int p = 0; p < csf->nodes[i].numParts; p++){
         csf->nodes[i].parts[p].nodeIDX = -1;
       }
     }
   }
+
+  if (csf->version < CADSCENEFILE_VERSION_GEOMETRYCHANNELS) {
+    CSFile_setupDefaultChannels(csf);
+  }
+
+  CSFile_clearDeprecated(csf);
+  
+
+  csf->numPointers = 0;
+  csf->pointers = nullptr;
 
   *outcsf = csf;
 
@@ -150,7 +182,7 @@ CSFAPI int CSFile_load(CSFile** outcsf, const char* filename, CSFileMemoryPTR me
 #ifdef WIN32
   if (fopen_s(&file,filename,"rb"))
 #else
-  if (file = fopen(filename,"rb"))
+  if ((file = fopen(filename,"rb")) == nullptr)
 #endif
   {
     *outcsf = 0;
@@ -160,7 +192,7 @@ CSFAPI int CSFile_load(CSFile** outcsf, const char* filename, CSFileMemoryPTR me
   CSFile header = { 0 };
   size_t sizeshould = 0;
   if (!FREAD(&header,sizeof(header),sizeof(header),1,file) ||
-      !(sizeshould=CSFile_getRawSize(&header)))
+      (sizeshould = CSFile_getRawSize(&header)) == 0)
   {
     fclose(file);
     *outcsf = 0;
@@ -199,7 +231,7 @@ CSFAPI int CSFile_loadExt(CSFile** outcsf, const char* filename, CSFileMemoryPTR
     CSFile header = { 0 };
     size_t sizeshould = 0;
     if (!gzread(filegz,&header, (z_off_t)sizeof(header)) ||
-      !(sizeshould=CSFile_getRawSize(&header)))
+      (sizeshould = CSFile_getRawSize(&header)) == 0)
     {
       gzclose(filegz);
       *outcsf = 0;
@@ -227,7 +259,7 @@ CSFAPI int CSFile_loadExt(CSFile** outcsf, const char* filename, CSFileMemoryPTR
 struct OutputFILE {
   FILE*   m_file;
 
-  int  open(const char* filename, CSFileMemoryPTR mem)
+  int  open(const char* filename)
   {
 #ifdef WIN32
   return fopen_s(&m_file,filename,"wb");
@@ -256,7 +288,7 @@ struct OutputBuf {
   size_t  m_used;
   size_t  m_cur;
 
-  int  open(const char* filename, CSFileMemoryPTR mem)
+  int  open(const char* filename)
   {
     m_allocated = 1024*1024;
     m_data = (char*)malloc(m_allocated);
@@ -316,9 +348,9 @@ struct OutputGZ {
   gzFile    m_file;
   OutputBuf m_buf;
 
-  int  open(const char* filename, CSFileMemoryPTR mem)
+  int  open(const char* filename)
   {
-    m_buf.open(filename,mem);
+    m_buf.open(filename);
     m_file = gzopen(filename,"wb");
     return m_file == 0;
   }
@@ -401,10 +433,10 @@ struct CSFOffsetMgr {
 };
 
 template<class T>
-static int CSFile_saveInternal(const CSFile* csf, const char* filename, CSFileMemoryPTR mem)
+static int CSFile_saveInternal(const CSFile* csf, const char* filename)
 {
   T file;
-  if (file.open(filename,mem)){
+  if (file.open(filename)){
     return CADSCENEFILE_ERROR_NOFILE;
   }
 
@@ -426,18 +458,29 @@ static int CSFile_saveInternal(const CSFile* csf, const char* filename, CSFileMe
 
     for (int i = 0; i < csf->numGeometries; i++,geomOFFSET+=sizeof(CSFGeometry)){
       const CSFGeometry* geo = csf->geometries + i;
+
       if (geo->vertex && geo->numVertices){
         mgr.store( geomOFFSET + offsetof(CSFGeometry,vertexOFFSET),
           geo->vertex, sizeof(float) * 3 * geo->numVertices);
       }
       if (geo->normal && geo->numVertices){
         mgr.store( geomOFFSET + offsetof(CSFGeometry,normalOFFSET),
-          geo->normal, sizeof(float) * 3 * geo->numVertices);
+          geo->normal, sizeof(float) * 3 * geo->numVertices * geo->numNormalChannels);
       }
       if (geo->tex && geo->numVertices){
         mgr.store( geomOFFSET + offsetof(CSFGeometry,texOFFSET),
-          geo->tex, sizeof(float) * 2 * geo->numVertices);
+          geo->tex, sizeof(float) * 2 * geo->numVertices * geo->numTexChannels);
       }
+
+      if (geo->aux && geo->numVertices) {
+        mgr.store(geomOFFSET + offsetof(CSFGeometry, auxOFFSET),
+          geo->aux, sizeof(float) * 4 * geo->numVertices * geo->numAuxChannels);
+      }
+      if (geo->auxStorageOrder && geo->numAuxChannels) {
+        mgr.store(geomOFFSET + offsetof(CSFGeometry, auxStorageOrderOFFSET),
+          geo->auxStorageOrder, sizeof(CSFGeometryAuxChannel) * geo->numAuxChannels);
+      }
+      
       if (geo->indexSolid && geo->numIndexSolid){
         mgr.store( geomOFFSET + offsetof(CSFGeometry,indexSolidOFFSET),
           geo->indexSolid, sizeof(int) * geo->numIndexSolid);
@@ -446,6 +489,16 @@ static int CSFile_saveInternal(const CSFile* csf, const char* filename, CSFileMe
         mgr.store( geomOFFSET + offsetof(CSFGeometry,indexWireOFFSET),
           geo->indexWire, sizeof(int)  * geo->numIndexWire);
       }
+
+      if (geo->perpartStorageOrder && geo->numPartChannels) {
+        mgr.store(geomOFFSET + offsetof(CSFGeometry, perpartStorageOrder),
+          geo->perpartStorageOrder, sizeof(CSFGeometryPartChannel) * geo->numPartChannels);
+      }
+      if (geo->perpart && geo->numPartChannels) {
+        mgr.store(geomOFFSET + offsetof(CSFGeometry, perpart),
+          geo->perpart, CSFGeometry_getPerPartSize(geo));
+      }
+
       if (geo->parts && geo->numParts){
         mgr.store( geomOFFSET + offsetof(CSFGeometry,partsOFFSET),
           geo->parts, sizeof(CSFGeometryPart)  * geo->numParts);
@@ -532,7 +585,7 @@ static int CSFile_saveInternal(const CSFile* csf, const char* filename, CSFileMe
 
 CSFAPI int CSFile_save(const CSFile* csf, const char* filename)
 {
-  return CSFile_saveInternal<OutputFILE>(csf,filename,0);
+  return CSFile_saveInternal<OutputFILE>(csf,filename);
 }
 
 #if CSF_ZIP_SUPPORT
@@ -540,10 +593,10 @@ CSFAPI int CSFile_saveExt(CSFile* csf, const char* filename)
 {
   size_t len = strlen(filename);
   if (strcmp(filename+len-3,".gz")==0) {
-    return CSFile_saveInternal<OutputGZ>(csf,filename,0);
+    return CSFile_saveInternal<OutputGZ>(csf,filename);
   }
   else{
-    return CSFile_saveInternal<OutputFILE>(csf,filename,0);
+    return CSFile_saveInternal<OutputFILE>(csf,filename);
   }
 }
 
@@ -599,7 +652,7 @@ CSFAPI int CSFile_transform( CSFile *csf )
   if (!(csf->fileFlags & CADSCENEFILE_FLAG_UNIQUENODES))
     return CADSCENEFILE_ERROR_OPERATION;
 
-  CSFile_transformHierarchy(csf,csf->nodes + csf->rootIDX,NULL);
+  CSFile_transformHierarchy(csf,csf->nodes + csf->rootIDX, nullptr);
   return CADSCENEFILE_NOERROR;
 }
 
@@ -609,7 +662,7 @@ CSFAPI const CSFMeta* CSFile_getNodeMetas( const CSFile* csf )
     return csf->nodeMetas;
   }
 
-  return NULL;
+  return nullptr;
 }
 
 CSFAPI const CSFMeta* CSFile_getGeometryMetas( const CSFile* csf )
@@ -618,7 +671,7 @@ CSFAPI const CSFMeta* CSFile_getGeometryMetas( const CSFile* csf )
     return csf->geometryMetas;
   }
 
-  return NULL;
+  return nullptr;
 }
 
 
@@ -628,13 +681,13 @@ CSFAPI const CSFMeta* CSFile_getFileMeta( const CSFile* csf )
    return csf->fileMeta;
   }
 
-  return NULL;
+  return nullptr;
 }
 
 
 CSFAPI const CSFBytePacket* CSFile_getBytePacket( const unsigned char* bytes, CSFoffset numBytes, CSFGuid guid )
 {
-  if (numBytes < sizeof(CSFBytePacket)) return NULL;
+  if (numBytes < sizeof(CSFBytePacket)) return nullptr;
 
   do {
     const CSFBytePacket* packet = (const CSFBytePacket*)bytes;
@@ -646,5 +699,129 @@ CSFAPI const CSFBytePacket* CSFile_getBytePacket( const unsigned char* bytes, CS
 
   } while(numBytes >= sizeof(CSFBytePacket));
 
-  return NULL;
+  return nullptr;
 }
+
+CSFAPI const CSFBytePacket* CSFile_getMetaBytePacket(const CSFMeta* meta, CSFGuid guid)
+{
+  return CSFile_getBytePacket(
+    meta->bytes,
+    meta->numBytes,
+    guid);
+}
+
+CSFAPI const CSFBytePacket* CSFile_getMaterialBytePacket(const CSFile* csf, int materialIDX, CSFGuid guid)
+{
+  if (materialIDX < 0 || materialIDX >= csf->numMaterials) {
+    return nullptr;
+  }
+
+  return CSFile_getBytePacket(
+    csf->materials[materialIDX].bytes,
+    csf->materials[materialIDX].numBytes,
+    guid);
+}
+
+CSFAPI void CSFMatrix_identity(float* matrix)
+{
+  memset(matrix, 0, sizeof(float) * 16);
+  matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1.0f;
+}
+
+CSFAPI void CSFile_clearDeprecated(CSFile* csf)
+{
+  for (int g = 0; g < csf->numGeometries; g++) {
+    memset(csf->geometries[g]._deprecated, 0, sizeof(csf->geometries[g]._deprecated));
+    for (int p = 0; p < csf->geometries[g].numParts; p++) {
+      csf->geometries[g].parts[p]._deprecated = 0;
+    }
+  }
+}
+
+CSFAPI void CSFGeometry_setupDefaultChannels(CSFGeometry* geo)
+{
+  geo->numNormalChannels = geo->normal ? 1 : 0;
+  geo->numTexChannels = geo->tex ? 1 : 0;
+  geo->numAuxChannels = 0;
+  geo->numPartChannels = 0;
+  geo->aux = nullptr;
+  geo->auxStorageOrder = nullptr;
+  geo->perpart = nullptr;
+}
+
+CSFAPI void CSFile_setupDefaultChannels(CSFile* csf)
+{
+  for (int g = 0; g < csf->numGeometries; g++) {
+    CSFGeometry_setupDefaultChannels(csf->geometries + g);
+  }
+}
+
+CSFAPI const float* CSFGeometry_getNormalChannel(const CSFGeometry* geo, CSFGeometryNormalChannel channel)
+{
+  return channel < geo->numNormalChannels ? geo->normal + size_t(geo->numVertices * 3 * channel) : nullptr;
+}
+
+CSFAPI const float* CSFGeometry_getTexChannel(const CSFGeometry* geo, CSFGeometryTexChannel channel)
+{
+  return channel < geo->numTexChannels ? geo->tex + size_t(geo->numVertices * 2 * channel) : nullptr;
+}
+
+CSFAPI const float* CSFGeometry_getAuxChannel(const CSFGeometry* geo, CSFGeometryAuxChannel channel)
+{
+  for (int i = 0; i < geo->numAuxChannels; i++) {
+    if (geo->auxStorageOrder[i] == channel) {
+      return geo->aux + size_t(geo->numVertices * 4 * i);
+    }
+  }
+
+  return nullptr;
+}
+
+CSFAPI size_t CSFGeometryPartChannel_getSize(CSFGeometryPartChannel channel)
+{
+  size_t sizes[CSFGEOMETRY_PARTCHANNELS];
+  sizes[CSFGEOMETRY_PARTCHANNEL_BBOX] = sizeof(CSFGeometryPartBbox);
+
+  return sizes[channel];
+}
+
+CSFAPI size_t CSFGeometry_getPerPartSize(const CSFGeometry* geo)
+{
+  size_t size = 0;
+  for (int i = 0; i < geo->numPartChannels; i++) {
+    size += CSFGeometryPartChannel_getSize(geo->perpartStorageOrder[i]) * geo->numParts;
+  }
+  return size;
+}
+
+CSFAPI size_t CSFGeometry_getPerPartRequiredSize(const CSFGeometry* geo, int numParts)
+{
+  size_t size = 0;
+  for (int i = 0; i < geo->numPartChannels; i++) {
+    size += CSFGeometryPartChannel_getSize(geo->perpartStorageOrder[i]) * numParts;
+  }
+  return size;
+}
+
+CSFAPI size_t CSFGeometry_getPerPartRequiredOffset(const CSFGeometry* geo, int numParts, CSFGeometryPartChannel channel)
+{
+  size_t offset = 0;
+  for (int i = 0; i < geo->numPartChannels; i++) {
+    if (geo->perpartStorageOrder[i] == channel) {
+      return offset;
+    }
+    offset += CSFGeometryPartChannel_getSize(geo->perpartStorageOrder[i]) * numParts;
+  }
+  return ~0ull;
+}
+
+CSFAPI const void* CSFGeometry_getPartChannel(const CSFGeometry* geo, CSFGeometryPartChannel channel)
+{
+  size_t offset = CSFGeometry_getPerPartRequiredOffset(geo, geo->numParts, channel);
+  if (offset != ~0ull) {
+    return geo->perpart + offset;
+  }
+
+  return nullptr;
+}
+

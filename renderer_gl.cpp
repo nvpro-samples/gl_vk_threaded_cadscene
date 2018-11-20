@@ -1,25 +1,30 @@
-/*-----------------------------------------------------------------------
-  Copyright (c) 2014-2016, NVIDIA. All rights reserved.
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
-  are met:
-   * Redistributions of source code must retain the above copyright
-     notice, this list of conditions and the following disclaimer.
-   * Neither the name of its contributors may be used to endorse 
-     or promote products derived from this software without specific
-     prior written permission.
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-  PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------*/
+/* Copyright (c) 2014-2018, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 /* Contact ckubisch@nvidia.com (Christoph Kubisch) for feedback */
 
 
@@ -73,7 +78,7 @@ namespace csfthreaded
     {
       bool isAvailable() const
       {
-        return !!GLEW_NV_vertex_buffer_unified_memory;
+        return !!has_GL_NV_vertex_buffer_unified_memory;
       }
       const char* name() const
       {
@@ -98,13 +103,10 @@ namespace csfthreaded
 
   public:
 
-    void init(const CadScene* NVP_RESTRICT scene, Resources* resources);
+    void init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config);
     void deinit();
-    void draw(ShadeType shadetype, Resources*  NVP_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler, nv_helpers_gl::ProgramManager &progManager);
-
-    void blit(ShadeType shadeType, Resources* NVP_RESTRICT resources, const Resources::Global& global );
-
-
+    void draw(ShadeType shadetype, Resources*  NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler);
+    
     bool                        m_vbum;
     bool                        m_bindless_ubo;
 
@@ -121,7 +123,7 @@ namespace csfthreaded
 
     void SetWireMode( bool state, const ResourcesGL* res, ShadeType shadeType)
     {
-      glUseProgram( state ? res->programs.draw_line : res->programs.draw_solid);
+      glUseProgram( state ? res->m_programs.draw_line : res->m_programs.draw_solid);
     }
 
   };
@@ -129,14 +131,14 @@ namespace csfthreaded
   static RendererGL::Type s_uborange;
   static RendererGL::TypeVbum s_uborange_vbum;
 
-  void RendererGL::init(const CadScene* NVP_RESTRICT scene, Resources* resources)
+  void RendererGL::init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config)
   {
     m_scene = scene;
     m_bindless_ubo = ((ResourcesGL*)resources)->m_bindless_ubo;
 
-    fillDrawItems(m_drawItems,resources->m_percent, true, true);
+    fillDrawItems(m_drawItems, config, true, true);
 
-    if (resources->m_sorted){
+    if (config.sorted){
       std::sort(m_drawItems.begin(),m_drawItems.end(),DrawItem_compare_groups);
     }
   }
@@ -146,17 +148,17 @@ namespace csfthreaded
 
   }
 
-  void RendererGL::draw(ShadeType shadetype, Resources* NVP_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler, nv_helpers_gl::ProgramManager &progManager)
+  void RendererGL::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler)
   {
-    const CadScene* NVP_RESTRICT scene = m_scene;
-    const ResourcesGL* NVP_RESTRICT res = (ResourcesGL*)resources;
+    const CadScene* NV_RESTRICT scene = m_scene;
+    const ResourcesGL* NV_RESTRICT res = (ResourcesGL*)resources;
 
     bool vbum = m_vbum;
 
     // generic state setup
     glViewport(0, 0, global.width, global.height);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, res->fbos.scene);
+    glBindFramebuffer(GL_FRAMEBUFFER, res->m_fbos.scene);
     glClearColor(0.2f,0.2f,0.2f,0.0f);
     glClearDepth(1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -166,9 +168,9 @@ namespace csfthreaded
 
     SetWireMode(false,res,shadetype);
 
-    glNamedBufferSubDataEXT(res->buffers.scene,0,sizeof(SceneData),&global.sceneUbo);
+    glNamedBufferSubData(res->m_buffers.scene.buffer,0,sizeof(SceneData),&global.sceneUbo);
 
-    res->enableVertexFormat(VERTEX_POS,VERTEX_NORMAL);
+    res->enableVertexFormat();
 
     if (shadetype == SHADE_SOLIDWIRE){
       glEnable(GL_POLYGON_OFFSET_FILL);
@@ -191,16 +193,16 @@ namespace csfthreaded
     }
 
     if (vbum && m_bindless_ubo){
-      glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_SCENE, res->addresses.scene,sizeof(SceneData));
+      glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_SCENE, res->m_buffers.scene.bufferADDR,sizeof(SceneData));
     }
     else{
-      glBindBufferBase(GL_UNIFORM_BUFFER,UBO_SCENE, res->buffers.scene);
+      glBindBufferBase(GL_UNIFORM_BUFFER,UBO_SCENE, res->m_buffers.scene.buffer);
     }
 
 #if USE_INDEXING
-    // dor debugging purposes only
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,UBO_MATERIAL, res->buffers.materials);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,UBO_MATRIX,   res->buffers.matrices);
+    // for debugging purposes only
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,UBO_MATERIAL, res->m_buffers.materials);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,UBO_MATRIX,   res->m_buffers.matrices);
 #endif
 
     {
@@ -221,7 +223,7 @@ namespace csfthreaded
         const DrawItem& di = m_drawItems[i];
 
         if (shadetype == SHADE_SOLID && !di.solid){
-          if (res->m_sorted) break;
+          if (m_config.sorted) break;
           continue;
         }
 
@@ -234,12 +236,12 @@ namespace csfthreaded
           const ResourcesGL::Geometry &geogl = res->m_geometry[di.geometryIndex];
 
           if (vbum){
-            glBufferAddressRangeNV(GL_VERTEX_ATTRIB_ARRAY_ADDRESS_NV, 0,  geogl.vboADDR, geogl.vboSize);
-            glBufferAddressRangeNV(GL_ELEMENT_ARRAY_ADDRESS_NV,0,         geogl.iboADDR, geogl.iboSize);
+            glBufferAddressRangeNV(GL_VERTEX_ATTRIB_ARRAY_ADDRESS_NV, 0,  geogl.vbo.bufferADDR, geogl.vbo.size);
+            glBufferAddressRangeNV(GL_ELEMENT_ARRAY_ADDRESS_NV,0,         geogl.ibo.bufferADDR, geogl.ibo.size);
           }
           else{
-            glBindVertexBuffer(0, geogl.vboGL, 0, sizeof(CadScene::Vertex));
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, geogl.iboGL);
+            glBindVertexBuffer(0, geogl.vbo.buffer, 0, sizeof(CadScene::Vertex));
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, geogl.ibo.buffer);
           }
 
           lastGeometry = di.geometryIndex;
@@ -250,10 +252,10 @@ namespace csfthreaded
         if (lastMatrix != di.matrixIndex){
 
           if (vbum && m_bindless_ubo){
-            glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_MATRIX, res->addresses.matrices + res->m_alignedMatrixSize * di.matrixIndex, sizeof(CadScene::MatrixNode));
+            glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_MATRIX, res->m_buffers.matrices.bufferADDR + res->m_alignedMatrixSize * di.matrixIndex, sizeof(CadScene::MatrixNode));
           }
           else{
-            glBindBufferRange(GL_UNIFORM_BUFFER,UBO_MATRIX, res->buffers.matrices, res->m_alignedMatrixSize * di.matrixIndex, sizeof(CadScene::MatrixNode));
+            glBindBufferRange(GL_UNIFORM_BUFFER,UBO_MATRIX, res->m_buffers.matrices.buffer, res->m_alignedMatrixSize * di.matrixIndex, sizeof(CadScene::MatrixNode));
           }
 
           lastMatrix = di.matrixIndex;
@@ -264,10 +266,10 @@ namespace csfthreaded
         if (lastMaterial != di.materialIndex){
 
           if (m_vbum && m_bindless_ubo){
-            glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_MATERIAL, res->addresses.materials + res->m_alignedMaterialSize * di.materialIndex, sizeof(CadScene::Material));
+            glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_MATERIAL, res->m_buffers.materials.bufferADDR + res->m_alignedMaterialSize * di.materialIndex, sizeof(CadScene::Material));
           }
           else{
-            glBindBufferRange(GL_UNIFORM_BUFFER,UBO_MATERIAL, res->buffers.materials, res->m_alignedMaterialSize * di.materialIndex, sizeof(CadScene::Material));
+            glBindBufferRange(GL_UNIFORM_BUFFER,UBO_MATERIAL, res->m_buffers.materials.buffer, res->m_alignedMaterialSize * di.materialIndex, sizeof(CadScene::Material));
           }
 
           lastMaterial = di.materialIndex;
@@ -309,25 +311,10 @@ namespace csfthreaded
       glPolygonOffset(0,0);
     }
 
-    res->disableVertexFormat(VERTEX_POS,VERTEX_NORMAL);
+    res->disableVertexFormat();
 
     glBindFramebuffer(GL_FRAMEBUFFER,0);
   }
-
-  void RendererGL::blit( ShadeType shadeType, Resources* NVP_RESTRICT resources, const Resources::Global& global )
-  {
-    ResourcesGL* res = (ResourcesGL*)resources;
-
-    int width   = global.width;
-    int height  = global.height;
-
-    // blit to background
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, res->fbos.scene);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(0,0,width,height,
-      0,0,width,height,GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-  }
-
+  
 }
+

@@ -27,7 +27,7 @@
 
 #include "resources_vk.hpp"
 
-#include "vk_nvx_device_generated_commands.h"
+#include <nv_helpers_vk/extensions_vk.hpp>
 
 
 namespace csfthreaded {
@@ -53,7 +53,7 @@ namespace csfthreaded {
 
     struct TableContent {
       size_t                        resourceIncarnation;
-      NulledVk<VkObjectTableNVX>    objectTable;
+      TNulled<VkObjectTableNVX>    objectTable;
       // we keep all used registered indices around
       std::vector<uint32_t>         vertexBuffers;
       std::vector<uint32_t>         indexBuffers;
@@ -66,12 +66,12 @@ namespace csfthreaded {
     bool                          m_generatedCommandsSupport;
     TableContent                  m_table;
 
-    void init();
+    bool init(NVPWindow* window);
 
     bool initScene(const CadScene&);
     void deinitScene();
 
-    void updatedPrograms( nv_helpers_gl::ProgramManager &mgr );
+    void reloadPrograms(const std::string& prepend);
 
     void initObjectTable();
     void updateObjectTablePipelines();

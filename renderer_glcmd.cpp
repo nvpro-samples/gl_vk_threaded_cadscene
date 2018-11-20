@@ -1,27 +1,31 @@
-/*-----------------------------------------------------------------------
-  Copyright (c) 2014-2016, NVIDIA. All rights reserved.
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
-  are met:
-   * Redistributions of source code must retain the above copyright
-     notice, this list of conditions and the following disclaimer.
-   * Neither the name of its contributors may be used to endorse 
-     or promote products derived from this software without specific
-     prior written permission.
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-  PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------*/
-/* Contact ckubisch@nvidia.com (Christoph Kubisch) for feedback */
+/* Copyright (c) 2014-2018, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
+/* Contact ckubisch@nvidia.com (Christoph Kubisch) for feedback */
 
 #include <assert.h>
 #include <algorithm>
@@ -52,7 +56,7 @@ namespace csfthreaded
     {
       bool isAvailable() const
       {
-        return !!init_NV_command_list(NVPWindow::sysGetProcAddress);
+        return !!load_GL_NV_command_list(NVPWindow::sysGetProcAddressGL);
       }
       const char* name() const
       {
@@ -79,7 +83,7 @@ namespace csfthreaded
     {
       bool isAvailable() const
       {
-        return !!init_NV_command_list(NVPWindow::sysGetProcAddress);
+        return !!load_GL_NV_command_list(NVPWindow::sysGetProcAddressGL);
       }
       const char* name() const
       {
@@ -105,7 +109,7 @@ namespace csfthreaded
     {
       bool isAvailable() const
       {
-        return !!init_NV_command_list(NVPWindow::sysGetProcAddress);
+        return !!load_GL_NV_command_list(NVPWindow::sysGetProcAddressGL);
       }
       const char* name() const
       {
@@ -130,13 +134,10 @@ namespace csfthreaded
 
   public:
 
-    void init(const CadScene* NVP_RESTRICT scene, Resources* resources);
+    void init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config);
     void deinit();
-    void draw(ShadeType shadetype, Resources*  NVP_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler, nv_helpers_gl::ProgramManager &progManager);
-
-    void blit(ShadeType shadeType, Resources* NVP_RESTRICT resources, const Resources::Global& global );
-
-
+    void draw(ShadeType shadetype, Resources*  NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler);
+    
     Mode    m_mode;
 
     RendererGLCMD()
@@ -166,7 +167,7 @@ namespace csfthreaded
     GLuint                m_tokenBuffers[NUM_SHADES];
 
 
-    void GenerateTokens(std::vector<DrawItem>& drawItems, ShadeType shade, const CadScene* NVP_RESTRICT scene, const ResourcesGL* NVP_RESTRICT res )
+    void GenerateTokens(std::vector<DrawItem>& drawItems, ShadeType shade, const CadScene* NV_RESTRICT scene, const ResourcesGL* NV_RESTRICT res )
     {
       int lastMaterial = -1;
       int lastGeometry = -1;
@@ -186,7 +187,7 @@ namespace csfthreaded
         ResourcesGL::tokenUbo ubo;
         ubo.cmd.index   = UBO_SCENE;
         ubo.cmd.stage   = UBOSTAGE_VERTEX;
-        ResourcesGL::encodeAddress(&ubo.cmd.addressLo,res->addresses.scene);
+        ResourcesGL::encodeAddress(&ubo.cmd.addressLo,res->m_buffers.scene.bufferADDR);
         ubo.enqueue(sc.tokens);
 
         ubo.cmd.stage   = UBOSTAGE_FRAGMENT;
@@ -202,15 +203,15 @@ namespace csfthreaded
         const DrawItem& di = drawItems[i];
 
         if (shade == SHADE_SOLID && !di.solid){
-          if (res->m_sorted) break;
+          if (m_config.sorted) break;
           continue;
         }
 
         if ( ( shade == SHADE_SOLIDWIRE ) && di.solid != lastSolid){
           sc.offsets.push_back( begin );
           sc.sizes.  push_back( GLsizei((sc.tokens.size()-begin)) );
-          sc.states. push_back( lastSolid ? res->stateobjects.draw_line_tris : res->stateobjects.draw_line );
-          sc.fbos.   push_back( res->fbos.scene );
+          sc.states. push_back( lastSolid ? res->m_stateobjects.draw_line_tris : res->m_stateobjects.draw_line );
+          sc.fbos.   push_back( res->m_fbos.scene );
 
           begin = sc.tokens.size();
         }
@@ -221,11 +222,11 @@ namespace csfthreaded
 
           ResourcesGL::tokenVbo vbo;
           vbo.cmd.index = 0;
-          ResourcesGL::encodeAddress(&vbo.cmd.addressLo, geogl.vboADDR);
+          ResourcesGL::encodeAddress(&vbo.cmd.addressLo, geogl.vbo.bufferADDR);
           vbo.enqueue(sc.tokens);
 
           ResourcesGL::tokenIbo ibo;
-          ResourcesGL::encodeAddress(&ibo.cmd.addressLo, geogl.iboADDR);
+          ResourcesGL::encodeAddress(&ibo.cmd.addressLo, geogl.ibo.bufferADDR);
           ibo.cmd.typeSizeInByte = 4;
           ibo.enqueue(sc.tokens);
 
@@ -237,7 +238,7 @@ namespace csfthreaded
           ResourcesGL::tokenUbo ubo;
           ubo.cmd.index   = UBO_MATRIX;
           ubo.cmd.stage   = UBOSTAGE_VERTEX;
-          ResourcesGL::encodeAddress(&ubo.cmd.addressLo, res->addresses.matrices + res->m_alignedMatrixSize * di.matrixIndex);
+          ResourcesGL::encodeAddress(&ubo.cmd.addressLo, res->m_buffers.matrices.bufferADDR + res->m_alignedMatrixSize * di.matrixIndex);
           ubo.enqueue(sc.tokens);
 
           lastMatrix = di.matrixIndex;
@@ -248,7 +249,7 @@ namespace csfthreaded
           ResourcesGL::tokenUbo ubo;
           ubo.cmd.index   = UBO_MATERIAL;
           ubo.cmd.stage   = UBOSTAGE_FRAGMENT;
-          ResourcesGL::encodeAddress(&ubo.cmd.addressLo, res->addresses.materials + res->m_alignedMaterialSize * di.materialIndex);
+          ResourcesGL::encodeAddress(&ubo.cmd.addressLo, res->m_buffers.materials.bufferADDR + res->m_alignedMaterialSize * di.materialIndex);
           ubo.enqueue(sc.tokens);
 
           lastMaterial = di.materialIndex;
@@ -266,12 +267,12 @@ namespace csfthreaded
       sc.offsets.push_back( begin );
       sc.sizes.  push_back( GLsizei((sc.tokens.size()-begin)) );
       if (shade == SHADE_SOLID){
-        sc.states. push_back( res->stateobjects.draw_tris );
+        sc.states. push_back( res->m_stateobjects.draw_tris );
       }
       else{
-        sc.states. push_back( lastSolid ? res->stateobjects.draw_line_tris : res->stateobjects.draw_line );
+        sc.states. push_back( lastSolid ? res->m_stateobjects.draw_line_tris : res->m_stateobjects.draw_line );
       }
-      sc.fbos. push_back( res->fbos.scene );
+      sc.fbos. push_back( res->m_fbos.scene );
 
       sc.ptrs.reserve(sc.offsets.size());
       for (size_t p = 0; p < sc.offsets.size(); p++){
@@ -296,29 +297,29 @@ namespace csfthreaded
 #if 0
   static RendererGLCMD::TypeRecompile s_uborange_recompile;
 #endif
-  void RendererGLCMD::init(const CadScene* NVP_RESTRICT scene, Resources* resources)
+  void RendererGLCMD::init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config)
   {
     m_scene = scene;
-    const ResourcesGL* NVP_RESTRICT res = (const ResourcesGL*)resources;
+    const ResourcesGL* NV_RESTRICT res = (const ResourcesGL*)resources;
 
-    fillDrawItems(m_drawItems,resources->m_percent, true, true);
+    fillDrawItems(m_drawItems, config, true, true);
 
-    if (resources->m_sorted){
+    if (config.sorted){
       std::sort(m_drawItems.begin(),m_drawItems.end(),DrawItem_compare_groups);
     }
 
     for (int i = 0 ; i < NUM_SHADES; i++){
       GenerateTokens(m_drawItems, (ShadeType)i, scene, res);
 
-      printf("stats: %s\n",toString((ShadeType)i));
+      LOGI("stats: %s\n",toString((ShadeType)i));
       int stats[ResourcesGL::GL_TOKENS] = { 0 };
       ResourcesGL::nvtokenGetStats( &m_shades[i].tokens[0], m_shades[i].tokens.size(), stats );
       for (int t = 0 ; t < ResourcesGL::GL_TOKENS; t++){
         if (stats[t]){
-          printf("%s\t: %7d\n", ResourcesGL::nvtokenCommandToString(t), stats[t] );
+          LOGI("%s\t: %7d\n", ResourcesGL::nvtokenCommandToString(t), stats[t] );
         }
       }
-      printf("stateobject sequences: %7d\n\n", m_shades[i].states.size());
+      LOGI("stateobject sequences: %7d\n\n", uint32_t(m_shades[i].states.size()));
     }
 
     res->rebuildStateObjects();
@@ -331,9 +332,9 @@ namespace csfthreaded
       }
     }
     else{
-      glGenBuffers(NUM_SHADES,m_tokenBuffers);
+      glCreateBuffers(NUM_SHADES,m_tokenBuffers);
       for (int i = 0 ;i < NUM_SHADES; i++){
-        glNamedBufferDataEXT(m_tokenBuffers[i], m_shades[i].tokens.size(), &m_shades[i].tokens[0], GL_STATIC_DRAW);
+        glNamedBufferData(m_tokenBuffers[i], m_shades[i].tokens.size(), &m_shades[i].tokens[0], GL_STATIC_DRAW);
       }
     }
   }
@@ -348,10 +349,10 @@ namespace csfthreaded
     }
   }
 
-  void RendererGLCMD::draw(ShadeType shadetype, Resources* NVP_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler, nv_helpers_gl::ProgramManager &progManager)
+  void RendererGLCMD::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler)
   {
-    const CadScene* NVP_RESTRICT scene = m_scene;
-    const ResourcesGL* NVP_RESTRICT res = (ResourcesGL*)resources;
+    const CadScene* NV_RESTRICT scene = m_scene;
+    const ResourcesGL* NV_RESTRICT res = (ResourcesGL*)resources;
 
     // generic state setup
     glViewport(0, 0, global.width, global.height);
@@ -363,12 +364,12 @@ namespace csfthreaded
     }
     m_state = res->m_state;
 
-    glBindFramebuffer(GL_FRAMEBUFFER, res->fbos.scene);
+    glBindFramebuffer(GL_FRAMEBUFFER, res->m_fbos.scene);
     glClearColor(0.2f,0.2f,0.2f,0.0f);
     glClearDepth(1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-    glNamedBufferSubDataEXT(res->buffers.scene,0,sizeof(SceneData),&global.sceneUbo);
+    glNamedBufferSubData(res->m_buffers.scene.buffer,0,sizeof(SceneData),&global.sceneUbo);
 
     if (m_mode == MODE_LIST || m_mode == MODE_LIST_RECOMPILE){
       if (m_shades[shadetype].state.programs != m_state.programs ||
@@ -393,21 +394,5 @@ namespace csfthreaded
     
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
   }
-
-  void RendererGLCMD::blit( ShadeType shadeType, Resources* NVP_RESTRICT resources, const Resources::Global& global )
-  {
-    ResourcesGL* res = (ResourcesGL*)resources;
-
-    int width   = global.width;
-    int height  = global.height;
-
-    // blit to background
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, res->fbos.scene);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(0,0,width,height,
-      0,0,width,height,GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-  }
-
+  
 }

@@ -1,46 +1,49 @@
-/*-----------------------------------------------------------------------
-  Copyright (c) 2014-2016, NVIDIA. All rights reserved.
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions
-  are met:
-   * Redistributions of source code must retain the above copyright
-     notice, this list of conditions and the following disclaimer.
-   * Neither the name of its contributors may be used to endorse 
-     or promote products derived from this software without specific
-     prior written permission.
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-  PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------*/
-/* Contact ckubisch@nvidia.com (Christoph Kubisch) for feedback */
+/* Copyright (c) 2014-2018, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
 #include "resources_vkgen.hpp"
 #include <algorithm>
 
-extern bool vulkanIsExtensionSupported(const char* name);
+extern bool vulkanIsExtensionSupported(uint32_t deviceIdx, const char* name);
 
 
 namespace csfthreaded {
 
-  void ResourcesVKGen::init()
+  bool ResourcesVKGen::init(NVPWindow* window)
   {
-    ResourcesVK::init();
+    bool valid = ResourcesVK::init(window);
 
-    m_generatedCommandsSupport = load_VK_NVX_device_generated_commands(m_instance, vkGetInstanceProcAddr) ? true : false;
-    assert(m_generatedCommandsSupport);
+    m_generatedCommandsSupport = load_VK_NVX_device_generated_commands(m_device, vkGetDeviceProcAddr) ? true : false;
+    return valid && m_generatedCommandsSupport;
   }
 
   bool ResourcesVKGen::isAvailable()
   {
-    return ResourcesVK::isAvailable() && vulkanIsExtensionSupported(VK_NVX_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME);
+    return ResourcesVK::isAvailable() && vulkanIsExtensionSupported(s_vkDevice, VK_NVX_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME);
   }
 
   bool ResourcesVKGen::initScene( const CadScene&scene )
@@ -62,9 +65,9 @@ namespace csfthreaded {
     ResourcesVK::deinitScene();
   }
 
-  void ResourcesVKGen::updatedPrograms( nv_helpers_gl::ProgramManager &mgr )
+  void ResourcesVKGen::reloadPrograms(const std::string& prepend)
   {
-    ResourcesVK::updatedPrograms(mgr);
+    ResourcesVK::reloadPrograms(prepend);
     updateObjectTablePipelines();
   }
 
@@ -107,11 +110,11 @@ namespace csfthreaded {
 #endif
     };
 
-    assert(NV_ARRAYSIZE(restypes) == NV_ARRAYSIZE(rescounts));
-    assert(NV_ARRAYSIZE(restypes) == NV_ARRAYSIZE(resflags));
+    assert(NV_ARRAY_SIZE(restypes) == NV_ARRAY_SIZE(rescounts));
+    assert(NV_ARRAY_SIZE(restypes) == NV_ARRAY_SIZE(resflags));
 
     VkObjectTableCreateInfoNVX createInfo = { VkStructureType(VK_STRUCTURE_TYPE_OBJECT_TABLE_CREATE_INFO_NVX) };
-    createInfo.objectCount = NV_ARRAYSIZE(restypes);
+    createInfo.objectCount = NV_ARRAY_SIZE(restypes);
     createInfo.pObjectEntryCounts = rescounts;
     createInfo.pObjectEntryTypes = restypes;
     createInfo.pObjectEntryUsageFlags = resflags;
@@ -167,17 +170,17 @@ namespace csfthreaded {
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
     {
       VkObjectTableDescriptorSetEntryNVX descrentry = { VK_OBJECT_ENTRY_TYPE_DESCRIPTOR_SET_NVX, VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX };
-      descrentry.pipelineLayout = m_pipelineLayout;
+      descrentry.pipelineLayout = m_drawing.getPipeLayout();
       resEntry = (VkObjectTableEntryNVX*)&descrentry;
 
       resIndex = 0;
-      descrentry.descriptorSet = m_descriptorSet[UBO_MATRIX];
+      descrentry.descriptorSet = m_drawing.getSets(UBO_MATRIX)[0];
       result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
       assert(result == VK_SUCCESS);
       m_table.matrixDescriptorSets.push_back(resIndex);
 
       resIndex = 1;
-      descrentry.descriptorSet = m_descriptorSet[UBO_MATERIAL];
+      descrentry.descriptorSet = m_drawing.getSets(UBO_MATERIAL)[0];
       result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
       assert(result == VK_SUCCESS);
       m_table.materialDescriptorSets.push_back(resIndex);
@@ -188,8 +191,8 @@ namespace csfthreaded {
       descrentry.pipelineLayout = m_pipelineLayout;
       resEntry = (VkObjectTableEntryNVX*)&descrentry;
 
-      for (size_t i = 0; i < m_descriptorSetsMatrices.size(); i++){
-        descrentry.descriptorSet = m_descriptorSetsMatrices[i];
+      for (size_t i = 0; i < m_drawing.getSetsCount(UBO_MATRIX); i++){
+        descrentry.descriptorSet = m_drawing.getSets(UBO_MATRIX)[i];
 
         resIndex = i;
         result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
@@ -197,8 +200,8 @@ namespace csfthreaded {
         m_table.matrixDescriptorSets.push_back(resIndex);
       }
 
-      for (size_t i = 0; i < m_descriptorSetsMaterials.size(); i++){
-        descrentry.descriptorSet = m_descriptorSetsMaterials[i];
+      for (size_t i = 0; i < m_drawing.getSetsCount(UBO_MATERIAL); i++){
+        descrentry.descriptorSet = m_drawing.getSets(UBO_MATERIAL)[i];
 
         resIndex = i + m_descriptorSetsMatrices.size();
         result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
