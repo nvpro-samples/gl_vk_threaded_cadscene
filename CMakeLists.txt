@@ -27,6 +27,8 @@ if(NOT BASE_DIRECTORY) # if not defined, it means this cmake file was called as 
 endif(NOT BASE_DIRECTORY)
 _add_project_definitions(${PROJNAME})
 
+set( BUILD_${PROJNAME}_VULKAN_ONLY FALSE CACHE BOOL "Avoids OpenGL in samples that support dual use" )
+
 #####################################################################################
 # additions from packages needed for this sample
 # add refs  in LIBRARIES_OPTIMIZED
