@@ -1,8 +1,8 @@
 # Vulkan & OpenGL Threaded CAD Scene Sample
 
-The "threaded cadscene" sample allows comparing various rendering approaches using core OpenGL, extended OpenGL via bindless graphics and NV_command_list as well as Vulkan. It does make use of NVIDIA specific extensions to use Vulkan within an OpenGL context and display a Vulkan image.
+The "threaded cadscene" sample allows comparing various rendering approaches using core OpenGL, extended OpenGL via bindless graphics and NV_command_list as well as Vulkan.
 
-> **Note** This sample currently makes use of NVIDIA specific extensions to be able to use OpenGL UI on top of the Vulkan rendered image and using GLSL directly in Vulkan. A later fork of this sample is intended to be able to run without these features using a core Vulkan workflow.
+> **Note** This sample currently makes use of NVIDIA specific extension when it is compiled with OpenGL and Vulkan enabled. You can use the `BUILD_gl_vk_threaded_cadscene_VULKAN_ONLY` option to get it in "pure" Vulkan mode. We recommend this for best performance in Vulkan.
 
 The content being rendered in the sample is a CAD model which is made of many parts that have few triangles. Having such low complexity per draw-call can very often result into being CPU bound. 
 
@@ -170,6 +170,8 @@ As this sample only uses two pipeline objects (or state-objects in OpenGL) and t
 Make sure to have installed the [Vulkan-SDK](http://lunarg.com/vulkan-sdk/) and a [driver that supports Vulkan](https://developer.nvidia.com/vulkan-driver).
 
 Ideally clone this and other interesting [nvpro-samples](https://github.com/nvpro-samples) repositories into a common subdirectory. You will always need [shared_sources](https://github.com/nvpro-samples/shared_sources) and on Windows [shared_external](https://github.com/nvpro-samples/shared_external). The shared directories are searched either as subdirectory of the sample or one directory up.
+
+Using `BUILD_gl_vk_threaded_cadscene_VULKAN_ONLY` you can disable the OpenGL renderer support in the sample and create a pure Vulkan window using WSI. This is recommended if you intend to work foremost with Vulkan.
 
 If you are interested in multiple samples, you can use [build_all](https://github.com/nvpro-samples/build_all) CMAKE as entry point, it will also give you options to enable/disable individual samples when creating the solutions.
 
