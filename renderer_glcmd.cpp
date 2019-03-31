@@ -185,7 +185,7 @@ namespace csfthreaded
 
       {
         ResourcesGL::tokenUbo ubo;
-        ubo.cmd.index   = UBO_SCENE;
+        ubo.cmd.index   = DRAW_UBO_SCENE;
         ubo.cmd.stage   = UBOSTAGE_VERTEX;
         ResourcesGL::encodeAddress(&ubo.cmd.addressLo,res->m_buffers.scene.bufferADDR);
         ubo.enqueue(sc.tokens);
@@ -236,7 +236,7 @@ namespace csfthreaded
         if (lastMatrix != di.matrixIndex){
 
           ResourcesGL::tokenUbo ubo;
-          ubo.cmd.index   = UBO_MATRIX;
+          ubo.cmd.index   = DRAW_UBO_MATRIX;
           ubo.cmd.stage   = UBOSTAGE_VERTEX;
           ResourcesGL::encodeAddress(&ubo.cmd.addressLo, res->m_buffers.matrices.bufferADDR + res->m_alignedMatrixSize * di.matrixIndex);
           ubo.enqueue(sc.tokens);
@@ -247,7 +247,7 @@ namespace csfthreaded
         if (lastMaterial != di.materialIndex){
 
           ResourcesGL::tokenUbo ubo;
-          ubo.cmd.index   = UBO_MATERIAL;
+          ubo.cmd.index   = DRAW_UBO_MATERIAL;
           ubo.cmd.stage   = UBOSTAGE_FRAGMENT;
           ResourcesGL::encodeAddress(&ubo.cmd.addressLo, res->m_buffers.materials.bufferADDR + res->m_alignedMaterialSize * di.materialIndex);
           ubo.enqueue(sc.tokens);

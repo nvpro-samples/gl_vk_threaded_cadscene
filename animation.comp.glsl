@@ -30,18 +30,17 @@
 
 #include "common.h"
 
-UBOBINDING(UBO_ANIM) uniform animBuffer {
+layout (local_size_x = ANIMATION_WORKGROUPSIZE) in;
+
+layout(binding=ANIM_UBO) uniform animBuffer {
   AnimationData   anim;
 };
 
-
-layout (local_size_x = ANIMATION_WORKGROUPSIZE) in;
-
-SSBOBINDING(SSBO_MATRIXOUT) restrict buffer matricesBuffer {
+layout(binding=ANIM_SSBO_MATRIXOUT) restrict buffer matricesBuffer {
   MatrixData animated[];
 };
 
-SSBOBINDING(SSBO_MATRIXORIG) restrict buffer matricesOrigBuffer {
+layout(binding=ANIM_SSBO_MATRIXORIG) restrict buffer matricesOrigBuffer {
   MatrixData original[];
 };
 

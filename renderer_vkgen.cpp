@@ -30,15 +30,18 @@
 
 #include <assert.h>
 #include <algorithm>
+
+#include "resources_vkgen.hpp"
 #include "renderer.hpp"
 #include <main.h>
-#include "resources_vkgen.hpp"
 
 #include <nv_math/nv_math_glsltypes.h>
 
 using namespace nv_math;
 #include "common.h"
 
+
+#if UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
 
 namespace csfthreaded
 {
@@ -214,6 +217,17 @@ namespace csfthreaded
 
     void setupTarget(ShadeCommand &sc, ShadeType shadetype, VkCommandBuffer target, ResourcesVKGen* res, uint32_t maxCount);
 
+
+#if USE_SINGLE_GEOMETRY_BUFFERS
+  // can be 0 or 1
+  #define USE_PER_DRAW_VBO 1
+  #define USE_PER_DRAW_IBO 1
+#else
+  // must be 1
+  #define USE_PER_DRAW_VBO 1
+  #define USE_PER_DRAW_IBO 1
+#endif
+
     void GenerateIndirectTokenData(ShadeType shadetype, const DrawItem* NV_RESTRICT drawItems, size_t num,  ResourcesVKGen* NV_RESTRICT res )
     {
       m_resources->synchronize();
@@ -267,7 +281,7 @@ namespace csfthreaded
       #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
         {
           matrixsets.push_back(di.matrixIndex);
-          materialsets.push_back(di.materialIndex + res->m_descriptorSetsMatrices.size());
+          materialsets.push_back(di.materialIndex + res->m_drawing.descriptorSets[DRAW_UBO_MATRIX].size());
         }
       #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
         {
@@ -286,6 +300,13 @@ namespace csfthreaded
           drawcmd.instanceCount = 1;
           drawcmd.firstInstance = 0;
           drawcmd.vertexOffset  = 0;
+        #if !USE_PER_DRAW_IBO
+          drawcmd.firstIndex += glgeo.ibo.offset / sizeof(uint32_t);
+        #endif
+        #if !USE_PER_DRAW_VBO
+          drawcmd.vertexOffset = glgeo.vbo.offset / sizeof(CadScene::Vertex);
+        #endif
+
           draws.push_back(drawcmd);
         }
       }
@@ -359,23 +380,25 @@ namespace csfthreaded
         input.offset = pipeOffset;
         sc.inputs.push_back(input);
       }
-      {
+
+      if (USE_PER_DRAW_IBO){
         input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_INDEX_BUFFER_NVX;
         input.offset = indexbufferOffset;
         sc.inputs.push_back(input);
       }
-      {
+
+      if (USE_PER_DRAW_VBO) {
         input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_VERTEX_BUFFER_NVX;
         input.offset = vertexbufferOffset;
         sc.inputs.push_back(input);
       }
       {
       #if UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NVX;
         input.offset = matrixOffset;
         sc.inputs.push_back(input);
 
-        input.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NVX;
+        input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NVX;
         input.offset = materialOffset;
         sc.inputs.push_back(input);
       #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
@@ -415,14 +438,14 @@ namespace csfthreaded
         input.divisor = 1;
         inputInfos.push_back(input);
       }
-      {
+      if (USE_PER_DRAW_IBO) {
         input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_INDEX_BUFFER_NVX;
         input.bindingUnit = 0;
         input.dynamicCount = 1;
         input.divisor = 1;
         inputInfos.push_back(input);
       }
-      {
+      if (USE_PER_DRAW_VBO) {
         input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_VERTEX_BUFFER_NVX;
         input.bindingUnit = 0;
         input.dynamicCount = 1;
@@ -444,25 +467,25 @@ namespace csfthreaded
         inputInfos.push_back(input);
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
         input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DESCRIPTOR_SET_NVX;
-        input.bindingUnit = UBO_MATRIX;
+        input.bindingUnit = DRAW_UBO_MATRIX;
         input.dynamicCount = 1;
         input.divisor = 1;
         inputInfos.push_back(input);
 
         input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DESCRIPTOR_SET_NVX;
-        input.bindingUnit = UBO_MATERIAL;
+        input.bindingUnit = DRAW_UBO_MATERIAL;
         input.dynamicCount = 1;
         input.divisor = 1;
         inputInfos.push_back(input);
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
         input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DESCRIPTOR_SET_NVX;
-        input.bindingUnit = UBO_MATRIX;
+        input.bindingUnit = DRAW_UBO_MATRIX;
         input.dynamicCount = 0;
         input.divisor = 1;
         inputInfos.push_back(input);
 
         input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DESCRIPTOR_SET_NVX;
-        input.bindingUnit = UBO_MATERIAL;
+        input.bindingUnit = DRAW_UBO_MATERIAL;
         input.dynamicCount = 0;
         input.divisor = 1;
         inputInfos.push_back(input);
@@ -584,10 +607,20 @@ namespace csfthreaded
     }
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
     vkCmdBindDescriptorSets(target, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
-      UBO_SCENE, 1, res->m_drawing.getSets(UBO_SCENE), 0, NULL);
+      DRAW_UBO_SCENE, 1, res->m_drawing.getSets(DRAW_UBO_SCENE), 0, NULL);
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
     vkCmdBindDescriptorSets(target, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
-      UBO_SCENE, 1, res->m_drawing.getSets(0), 0, NULL);
+      DRAW_UBO_SCENE, 1, res->m_drawing.getSets(0), 0, NULL);
+#endif
+
+#if USE_SINGLE_GEOMETRY_BUFFERS
+    if (!USE_PER_DRAW_IBO) {
+      vkCmdBindIndexBuffer(target, res->buffers.ibo, 0, VK_INDEX_TYPE_UINT32);
+    }
+    if (!USE_PER_DRAW_VBO) {
+      VkDeviceSize offset = 0;
+      vkCmdBindVertexBuffers(target, 0, 1, &res->buffers.vbo, &offset);
+    }
 #endif
 
     // The previously generated commands will be executed here.
@@ -706,4 +739,5 @@ namespace csfthreaded
 
 }
 
+#endif
 

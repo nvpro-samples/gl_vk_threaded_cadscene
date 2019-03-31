@@ -31,13 +31,13 @@
 #include <assert.h>
 #include <algorithm>
 #include <queue>
-#include "renderer.hpp"
 #include <main.h>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <nv_helpers/spin_mutex.hpp>
 #include "resources_vk.hpp"
+#include "renderer.hpp"
 
 #include <nv_math/nv_math_glsltypes.h>
 
@@ -266,11 +266,11 @@ namespace csfthreaded
           solid ? solidPipeline : nonSolidPipeline);
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
-          UBO_SCENE, 1, res->m_drawing.getSets(UBO_SCENE), 0, NULL);
+          DRAW_UBO_SCENE, 1, res->m_drawing.getSets(DRAW_UBO_SCENE), 0, NULL);
 #endif
 #if UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW || UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
-          UBO_SCENE, 1, res->m_drawing.getSets(0), 0, NULL);
+          DRAW_UBO_SCENE, 1, res->m_drawing.getSets(0), 0, NULL);
 #endif
         lastSolid = solid;
       }
@@ -308,10 +308,10 @@ namespace csfthreaded
         #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
           uint32_t offset = di.matrixIndex    * res->m_alignedMatrixSize;
           vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
-            UBO_MATRIX, 1, res->m_drawing.getSets(UBO_MATRIX), 1, &offset);
+            DRAW_UBO_MATRIX, 1, res->m_drawing.getSets(DRAW_UBO_MATRIX), 1, &offset);
         #else
           vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
-            UBO_MATRIX, 1, res->m_drawing.getSets(UBO_MATRIX) + di.matrixIndex, 0, NULL);
+            DRAW_UBO_MATRIX, 1, res->m_drawing.getSets(DRAW_UBO_MATRIX) + di.matrixIndex, 0, NULL);
         #endif
           lastMatrix = di.matrixIndex;
         }
@@ -321,10 +321,10 @@ namespace csfthreaded
         #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
           uint32_t offset = di.materialIndex    * res->m_alignedMaterialSize;
           vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
-            UBO_MATERIAL, 1, res->m_drawing.getSets(UBO_MATERIAL), 1, &offset);
+            DRAW_UBO_MATERIAL, 1, res->m_drawing.getSets(DRAW_UBO_MATERIAL), 1, &offset);
         #else
           vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
-            UBO_MATERIAL, 1, res->m_drawing.getSets(UBO_MATERIAL) + di.materialIndex, 0, NULL);
+            DRAW_UBO_MATERIAL, 1, res->m_drawing.getSets(DRAW_UBO_MATERIAL) + di.materialIndex, 0, NULL);
         #endif
           lastMaterial = di.materialIndex;
         }
@@ -335,17 +335,17 @@ namespace csfthreaded
             lastMatrix   != di.matrixIndex)
         {
         #if UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC
-          uint32_t offsets[UBOS_NUM];
-          offsets[UBO_SCENE]    = 0;
-          offsets[UBO_MATRIX]   = di.matrixIndex    * res->m_alignedMatrixSize;
-          offsets[UBO_MATERIAL] = di.materialIndex  * res->m_alignedMaterialSize;
+          uint32_t offsets[DRAW_UBOS_NUM];
+          offsets[DRAW_UBO_SCENE]    = 0;
+          offsets[DRAW_UBO_MATRIX]   = di.matrixIndex    * res->m_alignedMatrixSize;
+          offsets[DRAW_UBO_MATERIAL] = di.materialIndex  * res->m_alignedMaterialSize;
 
         #elif UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC
-          uint32_t offsets[UBOS_NUM-1];
-          offsets[UBO_MATRIX-1]   = di.matrixIndex    * res->m_alignedMatrixSize;
-          offsets[UBO_MATERIAL-1] = di.materialIndex  * res->m_alignedMaterialSize;
+          uint32_t offsets[DRAW_UBOS_NUM-1];
+          offsets[DRAW_UBO_MATRIX-1]   = di.matrixIndex    * res->m_alignedMatrixSize;
+          offsets[DRAW_UBO_MATERIAL-1] = di.materialIndex  * res->m_alignedMaterialSize;
         #endif
-          vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.pipelineLayout,
+          vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
             0, 1, res->m_drawing.getSets(0), sizeof(offsets)/sizeof(offsets[0]),offsets);
 
           lastMaterial = di.materialIndex;
@@ -355,14 +355,14 @@ namespace csfthreaded
       #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
         if (lastMatrix != di.matrixIndex)
         {
-          vkCmdPushConstants(cmd, res->m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(ObjectData), &scene->m_matrices[di.matrixIndex]);
+          vkCmdPushConstants(cmd, res->m_drawing.getPipeLayout(), VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(ObjectData), &scene->m_matrices[di.matrixIndex]);
 
           lastMatrix = di.matrixIndex;
         }
 
         if (lastMaterial != di.materialIndex)
         {
-          vkCmdPushConstants(cmd, res->m_pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT,sizeof(ObjectData),sizeof(MaterialData), &scene->m_materials[di.materialIndex]);
+          vkCmdPushConstants(cmd, res->m_drawing.getPipeLayout(), VK_SHADER_STAGE_FRAGMENT_BIT,sizeof(ObjectData),sizeof(MaterialData), &scene->m_materials[di.materialIndex]);
 
           lastMaterial = di.materialIndex;
         }
@@ -370,14 +370,14 @@ namespace csfthreaded
       #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
         if (lastMatrix != di.matrixIndex)
         {
-          vkCmdPushConstants(cmd, res->m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(int), &di.matrixIndex);
+          vkCmdPushConstants(cmd, res->m_drawing.getPipeLayout(), VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(int), &di.matrixIndex);
 
           lastMatrix = di.matrixIndex;
         }
 
         if (lastMaterial != di.materialIndex)
         {
-          vkCmdPushConstants(cmd, res->m_pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT,sizeof(int),sizeof(int), &di.materialIndex);
+          vkCmdPushConstants(cmd, res->m_drawing.getPipeLayout(), VK_SHADER_STAGE_FRAGMENT_BIT,sizeof(int),sizeof(int), &di.materialIndex);
 
           lastMaterial = di.materialIndex;
         }

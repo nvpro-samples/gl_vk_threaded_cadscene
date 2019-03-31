@@ -277,73 +277,71 @@ namespace csfthreaded {
 
     // animation
     {
-      auto& bindings = m_anim.descriptorBindings[0];
-
       // UBO SCENE
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, UBO_ANIM));
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, SSBO_MATRIXOUT));
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, SSBO_MATRIXORIG));
-      m_anim.initSetLayout(m_device, 0);
 
-      m_anim.pipelineLayouts[0] = createPipelineLayout(1, m_anim.descriptorSetLayout);
-      m_anim.initPoolAndSets(m_device, 1);
+      auto& bindings = m_anim.descriptorBindings[0];
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, ANIM_UBO));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, ANIM_SSBO_MATRIXOUT));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, ANIM_SSBO_MATRIXORIG));
+      m_anim.init(m_device, m_allocator);
+      m_anim.initSetLayout(0);
+      m_anim.initPipeLayout(0);
+      m_anim.initPoolAndSets(0, 1);
     }
 
     {
+      m_drawing.init(m_device, m_allocator);
+      
   ///////////////////////////////////////////////////////////////////////////////////////////
   #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
-      std::vector<VkDescriptorSetLayoutBinding> bindings;
 
-      bindings.clear();
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0));
-      m_drawing.descriptorSetLayout[UBO_SCENE] = createDescriptorSetLayout(bindings.size(), bindings.data());
       
-      bindings.clear();
-    #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT, 0));
-    #else
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0));
-    #endif
-      m_drawing.descriptorSetLayout[UBO_MATRIX] = createDescriptorSetLayout(bindings.size(), bindings.data());
+      auto& bindingsScene = m_drawing.descriptorBindings[DRAW_UBO_SCENE];
+      bindingsScene.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0));
+      m_drawing.initSetLayout(DRAW_UBO_SCENE);
       
-      bindings.clear();
+      auto& bindingsMatrix = m_drawing.descriptorBindings[DRAW_UBO_MATRIX];
     #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_FRAGMENT_BIT, 0));
+      bindingsMatrix.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT, 0));
     #else
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0));
+      bindingsMatrix.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0));
     #endif
-      m_drawing.descriptorSetLayout[UBO_MATERIAL] = createDescriptorSetLayout(bindings.size(), bindings.data());
-
-      m_drawing.pipelineLayouts[0] = createPipelineLayout(UBOS_NUM, m_drawing.descriptorSetLayout);
+      m_drawing.initSetLayout(DRAW_UBO_MATRIX);
+      
+      auto& bindingsMaterial = m_drawing.descriptorBindings[DRAW_UBO_MATERIAL];
+    #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
+      bindingsMaterial.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_FRAGMENT_BIT, 0));
+    #else
+      bindingsMaterial.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0));
+    #endif
+      m_drawing.initSetLayout(DRAW_UBO_MATERIAL);
+      m_drawing.initPipeLayout(0);
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC
 
-      std::vector<VkDescriptorSetLayoutBinding> bindings;
+      auto& bindings = m_drawing.descriptorBindings[0];
 
-      bindings.clear();
     #if UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC
       // "worst" case, we declare all as dynamic, and used in all stages
       // this will increase GPU time!
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_SCENE));
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_MATRIX));
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_MATERIAL));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, DRAW_UBO_SCENE));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, DRAW_UBO_MATRIX));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, DRAW_UBO_MATERIAL));
     #elif UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_SCENE));
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT, UBO_MATRIX));
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_FRAGMENT_BIT, UBO_MATERIAL));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, DRAW_UBO_SCENE));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT, DRAW_UBO_MATRIX));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_FRAGMENT_BIT, DRAW_UBO_MATERIAL));
     #endif
-      m_drawing.descriptorSetLayout[0] = createDescriptorSetLayout(bindings.size(), bindings.data());
-
-      m_drawing.pipelineLayout = createPipelineLayout(1, m_drawing.descriptorSetLayout);
+      m_drawing.initSetLayout(0);
+      m_drawing.initPipeLayout(0);
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
 
-      bindings.clear();
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_SCENE));
-
-      m_drawing.descriptorSetLayout[0] = createDescriptorSetLayout(bindings.size(), bindings.data());
+      auto& bindings = m_drawing.descriptorBindings[0];
+      bindings.push_back(nvvk::makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, DRAW_UBO_SCENE));
+      m_drawing.initSetLayout(0);
 
       assert( sizeof(ObjectData) + sizeof(MaterialData) <= m_physical->properties.limits.maxPushConstantsSize );
 
@@ -357,17 +355,17 @@ namespace csfthreaded {
       pushRanges[1].size        = sizeof(MaterialData);
       pushRanges[1].offset      = sizeof(ObjectData);
 
-      m_drawing.pipelineLayout = createPipelineLayout(1, m_drawing.descriptorSetLayout, NV_ARRAY_SIZE(pushRanges), pushRanges);
+      m_drawing.initPipeLayout(0, NV_ARRAY_SIZE(pushRanges), pushRanges);
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
 
-      bindings.clear();
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, UBO_SCENE));
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, UBO_MATRIX));
-      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, UBO_MATERIAL));
+      auto& bindings = m_drawing.descriptorBindings[0];
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, DRAW_UBO_SCENE));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, DRAW_UBO_MATRIX));
+      bindings.push_back(makeDescriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, DRAW_UBO_MATERIAL));
 
-      m_drawing.descriptorSetLayout[0] = createDescriptorSetLayout(bindings.size(), bindings.data());
+      m_drawing.initSetLayout(0);
 
       VkPushConstantRange   pushRanges[2];
       pushRanges[0].stageFlags  = VK_SHADER_STAGE_VERTEX_BIT;
@@ -377,7 +375,7 @@ namespace csfthreaded {
       pushRanges[1].size        = sizeof(int);
       pushRanges[1].offset      = sizeof(int);
 
-      m_drawing.pipelineLayout = createPipelineLayout(1, m_drawing.descriptorSetLayout, NV_ARRAY_SIZE(pushRanges), pushRanges);
+      m_drawing.initPipeLayout(0, NV_ARRAY_SIZE(pushRanges), pushRanges);
   ///////////////////////////////////////////////////////////////////////////////////////////
   #endif
     }
@@ -409,10 +407,9 @@ namespace csfthreaded {
     vkDestroyRenderPass(m_device, passes.scenePreserve, NULL);
     vkDestroyRenderPass(m_device, passes.sceneUI, NULL);
 
-    m_drawing.deinitLayouts(m_device);
+    m_drawing.deinitLayouts();
 
-    m_anim.deinitLayouts(m_device);
-    m_anim.deinitPools(m_device);
+    m_anim.deinit();
 
   #if HAS_OPENGL
     vkDestroySemaphore(m_device, m_semImageRead, NULL);
@@ -432,103 +429,40 @@ namespace csfthreaded {
     m_shaderManager.addDirectory(path);
     m_shaderManager.addDirectory(std::string("GLSL_" PROJECT_NAME));
     m_shaderManager.addDirectory(path + std::string(PROJECT_RELDIRECTORY));
-    m_shaderManager.addDirectory(std::string(PROJECT_ABSDIRECTORY));
+    //m_shaderManager.addDirectory(std::string(PROJECT_ABSDIRECTORY));
 
     m_shaderManager.registerInclude("common.h", "common.h");
 
-    m_shaderManager.m_prepend = prepend;
+    m_shaderManager.m_prepend = prepend + 
+      nv_helpers::ShaderFileManager::format("#define UNIFORMS_ALLDYNAMIC %d\n", UNIFORMS_ALLDYNAMIC) +
+      nv_helpers::ShaderFileManager::format("#define UNIFORMS_SPLITDYNAMIC %d\n", UNIFORMS_SPLITDYNAMIC) +
+      nv_helpers::ShaderFileManager::format("#define UNIFORMS_MULTISETSDYNAMIC %d\n", UNIFORMS_MULTISETSDYNAMIC) +
+      nv_helpers::ShaderFileManager::format("#define UNIFORMS_MULTISETSSTATIC %d\n", UNIFORMS_MULTISETSSTATIC) +
+      nv_helpers::ShaderFileManager::format("#define UNIFORMS_PUSHCONSTANTS_RAW %d\n", UNIFORMS_PUSHCONSTANTS_RAW) +
+      nv_helpers::ShaderFileManager::format("#define UNIFORMS_PUSHCONSTANTS_INDEX %d\n", UNIFORMS_PUSHCONSTANTS_INDEX) +
+      nv_helpers::ShaderFileManager::format("#define UNIFORMS_TECHNIQUE %d\n", UNIFORMS_TECHNIQUE);
 
   ///////////////////////////////////////////////////////////////////////////////////////////
-  #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
     moduleids.vertex_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 0\n",
+      "#define WIREMODE 0\n",
       "scene.vert.glsl"));
     moduleids.fragment_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 0\n",
+      "#define WIREMODE 0\n",
       "scene.frag.glsl"));
 
     moduleids.vertex_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 1\n",
+      "#define WIREMODE 1\n",
       "scene.vert.glsl"));
     moduleids.fragment_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, set=(ubo), binding=0)\n#define WIREMODE 1\n",
+      "#define WIREMODE 1\n",
       "scene.frag.glsl"));
 
   ///////////////////////////////////////////////////////////////////////////////////////////
-  #elif UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC
-    moduleids.vertex_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n",
-      "scene.vert.glsl"));
-    moduleids.fragment_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n",
-      "scene.frag.glsl"));
-
-    moduleids.vertex_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n",
-      "scene.vert.glsl"));
-    moduleids.fragment_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n",
-      "scene.frag.glsl"));
-
-  ///////////////////////////////////////////////////////////////////////////////////////////
-  #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
-
+#if UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
     assert( sizeof(ObjectData) == 128 ); // offset provided to material layout
+#endif
 
-    moduleids.vertex_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n"
-      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
-      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
-      "scene.vert.glsl"));
-    moduleids.fragment_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n"
-      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
-      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
-      "scene.frag.glsl"));
-
-    moduleids.vertex_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n"
-      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
-      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
-      "scene.vert.glsl"));
-    moduleids.fragment_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n"
-      "#define MATERIAL_BINDING   layout(std140, push_constant)\n#define MATERIAL_LAYOUT layout(offset = 128)\n"
-      "#define MATRIX_BINDING     layout(std140, push_constant)\n",
-      "scene.frag.glsl"));
-
-  ///////////////////////////////////////////////////////////////////////////////////////////
-  #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
-    moduleids.vertex_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n#define USE_INDEXING 1\n"
-      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
-      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
-      "scene.vert.glsl"));
-
-    moduleids.fragment_tris = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 0\n#define USE_INDEXING 1\n"
-      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
-      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
-      "scene.frag.glsl"));
-
-    moduleids.vertex_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_VERTEX_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n#define USE_INDEXING 1\n"
-      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
-      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
-      "scene.vert.glsl"));
-
-    moduleids.fragment_line = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_FRAGMENT_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n#define WIREMODE 1\n#define USE_INDEXING 1\n"
-      "#define SSBOBINDING(ubo)   layout(std430, binding=(ubo), set=0)\n"
-      "#define INDEXING_SETUP     layout(std140, push_constant) uniform indexSetup { int matrixIndex; int materialIndex; }; \n",
-      "scene.frag.glsl"));
-  ///////////////////////////////////////////////////////////////////////////////////////////
-  #endif
-
-    moduleids.compute_animation = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_COMPUTE_BIT,
-      "#define UBOBINDING(ubo)    layout(std140, binding=(ubo), set=0)\n"
-      "#define SSBOBINDING(ssbo)  layout(std430, binding=(ssbo))\n",
-      "animation.comp.glsl"));
+    moduleids.compute_animation = m_shaderManager.createShaderModule(nv_helpers::ShaderFileManager::Definition(VK_SHADER_STAGE_COMPUTE_BIT, "animation.comp.glsl"));
 
     bool valid = m_shaderManager.areShaderModulesValid();
 
@@ -1518,11 +1452,18 @@ namespace csfthreaded {
       Geometry&                   geom = m_geometry[i];
 
       if (cgeom.cloneIdx < 0) {
+      #if USE_SINGLE_GEOMETRY_BUFFERS
         geom.vbo.buffer = buffers.vbo;
         geom.ibo.buffer = buffers.ibo;
-        fillBuffer(staging,buffers.vbo, geom.vbo.offset, geom.vbo.size, cgeom.vertices);
-        fillBuffer(staging,buffers.ibo, geom.ibo.offset, geom.ibo.size, cgeom.indices);
+      #else
+        vkBindBufferMemory(m_device, geom.vbo.buffer, mem.vbo, geom.vbo.offset);
+        vkBindBufferMemory(m_device, geom.ibo.buffer, mem.ibo, geom.ibo.offset);
+        geom.vbo.offset = 0;
+        geom.ibo.offset = 0;
+      #endif
 
+        fillBuffer(staging, geom.vbo.buffer, geom.vbo.offset, geom.vbo.size, cgeom.vertices);
+        fillBuffer(staging, geom.ibo.buffer, geom.ibo.offset, geom.ibo.size, cgeom.indices);
       }
       else{
         geom = m_geometry[cgeom.cloneIdx];
@@ -1564,69 +1505,50 @@ namespace csfthreaded {
 
       poolSizes.clear();
       poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,1 });
-      m_drawing.initPoolAndSets(m_device, 1, poolSizes.size(), poolSizes.data(), UBO_SCENE);
+      m_drawing.initPoolAndSets(DRAW_UBO_SCENE, 1, poolSizes.size(), poolSizes.data());
 
     #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
       poolSizes.clear();
       poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1 });
-      m_drawing.initPoolAndSets(m_device, 1, poolSizes.size(), poolSizes.data(), UBO_MATRIX);
+      m_drawing.initPoolAndSets(DRAW_UBO_MATRIX, 1, poolSizes.size(), poolSizes.data());
 
       poolSizes.clear();
       poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1 });
-      m_drawing.initPoolAndSets(m_device, 1, poolSizes.size(), poolSizes.data(), UBO_MATERIAL);
+      m_drawing.initPoolAndSets(DRAW_UBO_MATERIAL, 1, poolSizes.size(), poolSizes.data());
     #else
       poolSizes.clear();
       poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
-      m_drawing.initPoolAndSets(m_device, cadscene.m_matrices.size(), poolSizes.size(), poolSizes.data(), UBO_MATRIX);
+      m_drawing.initPoolAndSets(DRAW_UBO_MATRIX, cadscene.m_matrices.size(), poolSizes.size(), poolSizes.data());
 
       poolSizes.clear();
       poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
-      m_drawing.initPoolAndSets(m_device, cadscene.m_materials.size(), poolSizes.size(), poolSizes.data(), UBO_MATERIAL);
+      m_drawing.initPoolAndSets(DRAW_UBO_MATERIAL, cadscene.m_materials.size(), poolSizes.size(), poolSizes.data());
     #endif
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC
 
       poolSizes.clear();
-      poolSizes.push_back({ UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
-      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1 });
-      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1 });
-      m_drawing.initPoolAndSets(m_device, 1, poolSizes.size(), poolSizes.data(), 0);
+    #if UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC 
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 3 });
+    #else
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2 });
+    #endif
+      m_drawing.initPoolAndSets(0, 1, poolSizes.size(), poolSizes.data());
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
       poolSizes.clear();
       poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
-      m_drawing.initPoolAndSets(m_device, 1, poolSizes.size(), poolSizes.data(), 0);
+      m_drawing.initPoolAndSets(0, 1, poolSizes.size(), poolSizes.data());
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
-      // single descritptorset 
-      VkDescriptorPoolSize type_counts[UBOS_NUM];
-      type_counts[UBO_SCENE].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      type_counts[UBO_SCENE].descriptorCount = 1;
-      type_counts[UBO_MATRIX].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      type_counts[UBO_MATRIX].descriptorCount = 1;
-      type_counts[UBO_MATERIAL].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      type_counts[UBO_MATERIAL].descriptorCount = 1;
-
-      VkDescriptorPool descrPool;
-      VkDescriptorPoolCreateInfo descrPoolInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-      descrPoolInfo.poolSizeCount = NV_ARRAYSIZE(type_counts);
-      descrPoolInfo.pPoolSizes = type_counts;
-      descrPoolInfo.maxSets = 1;
-
-      result = vkCreateDescriptorPool(m_device, &descrPoolInfo, NULL, &descrPool);
-      assert(result == VK_SUCCESS);
-      m_descriptorPool = descrPool;
-
-      VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-      allocInfo.descriptorPool = descrPool;
-      allocInfo.descriptorSetCount = 1;
-      allocInfo.pSetLayouts    = &m_descriptorSetLayout;
-
-      result = vkAllocateDescriptorSets(m_device, &allocInfo, &m_descriptorSet);
-      assert(result == VK_SUCCESS);
+      poolSizes.clear();
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
+      poolSizes.push_back({ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 });
+      m_drawing.initPoolAndSets(0, 1, poolSizes.size(), poolSizes.data());
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #endif
@@ -1635,25 +1557,25 @@ namespace csfthreaded {
   //////////////////////////////////////////////////////////////////////////
   // Update phase
   //////////////////////////////////////////////////////////////////////////
-      VkDescriptorBufferInfo descriptors[UBOS_NUM] = {};
-      descriptors[UBO_SCENE] = views.scene;
-      descriptors[UBO_MATRIX] = views.matrices;
-      descriptors[UBO_MATERIAL] = views.materials;
+      VkDescriptorBufferInfo descriptors[DRAW_UBOS_NUM] = {};
+      descriptors[DRAW_UBO_SCENE] = views.scene;
+      descriptors[DRAW_UBO_MATRIX] = views.matrices;
+      descriptors[DRAW_UBO_MATERIAL] = views.materials;
   ///////////////////////////////////////////////////////////////////////////////////////////
   #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
 
-      VkWriteDescriptorSet updateDescriptors[UBOS_NUM] = { };
-      for (int i = 0; i < UBOS_NUM; i++){
+      VkWriteDescriptorSet updateDescriptors[DRAW_UBOS_NUM] = { };
+      for (int i = 0; i < DRAW_UBOS_NUM; i++){
         updateDescriptors[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         updateDescriptors[i].pNext = NULL;
-        updateDescriptors[i].descriptorType = (i == UBO_SCENE) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        updateDescriptors[i].descriptorType = (i == DRAW_UBO_SCENE) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         updateDescriptors[i].dstSet = m_drawing.descriptorSets[i][0];;
         updateDescriptors[i].dstBinding = 0;
         updateDescriptors[i].dstArrayElement = 0;
         updateDescriptors[i].descriptorCount = 1;
         updateDescriptors[i].pBufferInfo  = descriptors+i;
       }
-      vkUpdateDescriptorSets(m_device, UBOS_NUM, updateDescriptors, 0, 0);
+      vkUpdateDescriptorSets(m_device, DRAW_UBOS_NUM, updateDescriptors, 0, 0);
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
@@ -1662,24 +1584,24 @@ namespace csfthreaded {
       {
         VkWriteDescriptorSet updateDescriptor = {};
         updateDescriptor.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        updateDescriptor.dstSet = m_descriptorSet[UBO_SCENE];
+        updateDescriptor.dstSet = m_drawing.descriptorSets[DRAW_UBO_SCENE][0];
         updateDescriptor.dstBinding = 0;
         updateDescriptor.dstArrayElement = 0;
         updateDescriptor.descriptorCount = 1;
-        updateDescriptor.pBufferInfo = &descriptors[UBO_SCENE];
+        updateDescriptor.pBufferInfo = &descriptors[DRAW_UBO_SCENE];
         queuedDescriptors.push_back( updateDescriptor );
       }
 
       // loop over rest individually
       std::vector<VkDescriptorBufferInfo>     materialsInfo;
-      materialsInfo.resize(m_descriptorSetsMaterials.size());
-      for (size_t i = 0; i < m_descriptorSetsMaterials.size(); i++){
-        VkDescriptorBufferInfo info = createBufferInfo( buffers.materials, sizeof(CadScene::Material), m_alignedMaterialSize * i);
+      materialsInfo.resize(m_drawing.descriptorSets[DRAW_UBO_MATERIAL].size());
+      for (size_t i = 0; i < m_drawing.descriptorSets[DRAW_UBO_MATERIAL].size(); i++){
+        VkDescriptorBufferInfo info = makeDescriptorBufferInfo( buffers.materials, sizeof(CadScene::Material), m_alignedMaterialSize * i);
         materialsInfo[i] = info;
 
         VkWriteDescriptorSet updateDescriptor = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         updateDescriptor.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        updateDescriptor.dstSet = m_descriptorSetsMaterials[i];
+        updateDescriptor.dstSet = m_drawing.descriptorSets[DRAW_UBO_MATERIAL][i];
         updateDescriptor.dstBinding = 0;
         updateDescriptor.dstArrayElement = 0;
         updateDescriptor.descriptorCount = 1;
@@ -1689,14 +1611,14 @@ namespace csfthreaded {
       }
 
       std::vector<VkDescriptorBufferInfo>     matricesInfo;
-      matricesInfo.resize(m_descriptorSetsMatrices.size());
-      for (size_t i = 0; i < m_descriptorSetsMatrices.size(); i++){
-        VkDescriptorBufferInfo info = createBufferInfo( buffers.matrices, sizeof(CadScene::MatrixNode), m_alignedMatrixSize * i);
+      matricesInfo.resize(m_drawing.descriptorSets[DRAW_UBO_MATRIX].size());
+      for (size_t i = 0; i < m_drawing.descriptorSets[DRAW_UBO_MATRIX].size(); i++){
+        VkDescriptorBufferInfo info = makeDescriptorBufferInfo( buffers.matrices, sizeof(CadScene::MatrixNode), m_alignedMatrixSize * i);
         matricesInfo[i] = info;
 
         VkWriteDescriptorSet updateDescriptor = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         updateDescriptor.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        updateDescriptor.dstSet = m_descriptorSetsMatrices[i];
+        updateDescriptor.dstSet = m_drawing.descriptorSets[DRAW_UBO_MATRIX][i];
         updateDescriptor.dstBinding = 0;
         updateDescriptor.dstArrayElement = 0;
         updateDescriptor.descriptorCount = 1;
@@ -1709,18 +1631,18 @@ namespace csfthreaded {
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC
 
-      VkWriteDescriptorSet updateDescriptors[UBOS_NUM] = { };
-      for (int i = 0; i < UBOS_NUM; i++){
+      VkWriteDescriptorSet updateDescriptors[DRAW_UBOS_NUM] = { };
+      for (int i = 0; i < DRAW_UBOS_NUM; i++){
         updateDescriptors[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         updateDescriptors[i].pNext = NULL;
-        updateDescriptors[i].descriptorType = UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC || (UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC && i > UBO_SCENE ) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        updateDescriptors[i].descriptorType = UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC || (UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC && i > DRAW_UBO_SCENE ) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         updateDescriptors[i].dstSet = m_drawing.descriptorSets[0][0];
         updateDescriptors[i].dstBinding = i;
         updateDescriptors[i].dstArrayElement = 0;
         updateDescriptors[i].descriptorCount = 1;
         updateDescriptors[i].pBufferInfo  = descriptors+i;
       }
-      vkUpdateDescriptorSets(m_device, UBOS_NUM, updateDescriptors, 0, 0);
+      vkUpdateDescriptorSets(m_device, DRAW_UBOS_NUM, updateDescriptors, 0, 0);
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
@@ -1741,21 +1663,21 @@ namespace csfthreaded {
   #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
 
       // slightly different
-      descriptors[UBO_MATRIX]    = views.matricesFull;
-      descriptors[UBO_MATERIAL]  = views.materialsFull;
+      descriptors[DRAW_UBO_MATRIX]    = views.matricesFull;
+      descriptors[DRAW_UBO_MATERIAL]  = views.materialsFull;
 
-      VkWriteDescriptorSet updateDescriptors[UBOS_NUM] = {};
-      for (int i = 0; i < UBOS_NUM; i++){
+      VkWriteDescriptorSet updateDescriptors[DRAW_UBOS_NUM] = {};
+      for (int i = 0; i < DRAW_UBOS_NUM; i++){
         updateDescriptors[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         updateDescriptors[i].pNext = NULL;
-        updateDescriptors[i].descriptorType = (i == UBO_MATRIX || i == UBO_MATERIAL ) ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        updateDescriptors[i].descriptorType = (i == DRAW_UBO_MATRIX || i == DRAW_UBO_MATERIAL ) ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         updateDescriptors[i].dstSet = m_drawing.descriptorSets[0][0];
         updateDescriptors[i].dstBinding = i;
         updateDescriptors[i].dstArrayElement = 0;
         updateDescriptors[i].descriptorCount = 1;
         updateDescriptors[i].pBufferInfo  = descriptors+i;
       }
-      vkUpdateDescriptorSets(m_device, UBOS_NUM, updateDescriptors, 0, 0);
+      vkUpdateDescriptorSets(m_device, DRAW_UBOS_NUM, updateDescriptors, 0, 0);
 
   ///////////////////////////////////////////////////////////////////////////////////////////
   #endif
@@ -1764,14 +1686,14 @@ namespace csfthreaded {
     {
       // animation
       VkDescriptorBufferInfo descriptors[3] = {};
-      descriptors[UBO_ANIM] = views.anim;
-      descriptors[SSBO_MATRIXOUT]  = views.matricesFull;
-      descriptors[SSBO_MATRIXORIG] = views.matricesFullOrig;
+      descriptors[ANIM_UBO] = views.anim;
+      descriptors[ANIM_SSBO_MATRIXOUT]  = views.matricesFull;
+      descriptors[ANIM_SSBO_MATRIXORIG] = views.matricesFullOrig;
       VkWriteDescriptorSet updateDescriptors[3] = { };
       for (int i = 0; i < 3; i++){
         updateDescriptors[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         updateDescriptors[i].pNext = NULL;
-        updateDescriptors[i].descriptorType = i == UBO_ANIM ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        updateDescriptors[i].descriptorType = i == ANIM_UBO ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         updateDescriptors[i].dstSet = m_anim.descriptorSets[0][0];
         updateDescriptors[i].dstBinding = i;
         updateDescriptors[i].dstArrayElement = 0;
@@ -1817,7 +1739,7 @@ namespace csfthreaded {
     vkFreeMemory(m_device, mem.vbo, NULL);
     vkFreeMemory(m_device, mem.ibo, NULL);
 
-    m_drawing.deinitPools(m_device);
+    m_drawing.deinitPools();
   }
 
   void ResourcesVK::synchronize()

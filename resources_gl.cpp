@@ -336,9 +336,9 @@ namespace csfthreaded {
     // temp workaround
     glBufferAddressRangeNV(GL_VERTEX_ATTRIB_ARRAY_ADDRESS_NV,0,0,0);
     glBufferAddressRangeNV(GL_ELEMENT_ARRAY_ADDRESS_NV,0,0,0);
-    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_MATERIAL,0,0);
-    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_MATRIX,0,0);
-    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_SCENE,0,0);
+    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_MATERIAL,0,0);
+    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_MATRIX,0,0);
+    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_SCENE,0,0);
 
     // we will do a series of state captures
     glBindFramebuffer(GL_FRAMEBUFFER, m_fbos.scene);
@@ -363,11 +363,11 @@ namespace csfthreaded {
   {
     glUseProgram(m_programs.compute_animation);
     
-    glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_buffers.anim.buffer);
+    glBindBufferBase(GL_UNIFORM_BUFFER, ANIM_UBO, m_buffers.anim.buffer);
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(AnimationData), &global.animUbo);
 
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_MATRIXOUT, m_buffers.matrices.buffer);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_MATRIXORIG, m_buffers.matricesOrig.buffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ANIM_SSBO_MATRIXOUT, m_buffers.matrices.buffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ANIM_SSBO_MATRIXORIG, m_buffers.matricesOrig.buffer);
 
     glDispatchCompute((m_numMatrices + ANIMATION_WORKGROUPSIZE-1) / ANIMATION_WORKGROUPSIZE,1,1);
 

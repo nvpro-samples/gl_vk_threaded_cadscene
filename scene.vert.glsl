@@ -32,18 +32,58 @@
 //#extension GL_ARB_shading_language_include : enable
 #include "common.h"
 
-UBOBINDING(UBO_SCENE) uniform sceneBuffer {
-  SceneData   scene;
-};
+#ifdef VULKAN
 
-#if USE_INDEXING
-  SSBOBINDING(UBO_MATRIX) buffer matrixBuffer {
-    MatrixData    matrices[];
-  };
+  #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
+  
+    layout(set=DRAW_UBO_SCENE, binding=0, std140) uniform sceneBuffer {
+      SceneData   scene;
+    };
+    layout(set=DRAW_UBO_MATRIX, binding=0, std140) uniform objectBuffer {
+      ObjectData  object;
+    };
+    
+  #elif UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC
+  
+    layout(set=0, binding=DRAW_UBO_SCENE, std140) uniform sceneBuffer {
+      SceneData   scene;
+    };
+    layout(set=0, binding=DRAW_UBO_MATRIX, std140) uniform objectBuffer {
+      ObjectData  object;
+    };
+    
+  #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
+  
+    layout(set=0, binding=DRAW_UBO_SCENE, std140) uniform sceneBuffer {
+      SceneData   scene;
+    };
+    layout(std140, push_constant) uniform objectBuffer {
+      ObjectData  object;
+    };
+    
+  #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
+  
+    #define USE_INDEXING 1
+  
+    layout(std140, push_constant) uniform indexSetup {
+      int matrixIndex;
+      int materialIndex;
+    };  
+    layout(set=0, binding=DRAW_UBO_SCENE, std140) uniform sceneBuffer {
+      SceneData   scene;
+    };
+    layout(set=0, binding=DRAW_UBO_MATRIX, std430) buffer matrixBuffer {
+      MatrixData  matrices[];
+    };
+    
+  #endif
+
 #else
-  MATRIX_BINDING uniform matrixBuffer {
-    MATRIX_LAYOUT
-    ObjectData    object;
+  layout(binding=DRAW_UBO_SCENE, std140) uniform sceneBuffer {
+    SceneData   scene;
+  };
+  layout(binding=DRAW_UBO_MATRIX, std140) uniform objectBuffer {
+    ObjectData  object;
   };
 #endif
 

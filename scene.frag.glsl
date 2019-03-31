@@ -31,21 +31,60 @@
 //#extension GL_ARB_shading_language_include : enable
 #include "common.h"
 
-UBOBINDING(UBO_SCENE) uniform sceneBuffer {
-  SceneData   scene;
-};
+#ifdef VULKAN
 
-#if USE_INDEXING
-  SSBOBINDING(UBO_MATERIAL) buffer materialBuffer {
-    MaterialData    materials[];
-  };
-  int mi = materialIndex * 2; // due to ubo-256 byte padding * 2, FIXME should use cleaner approach
+  #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
+  
+    layout(set=DRAW_UBO_SCENE, binding=0, std140) uniform sceneBuffer {
+      SceneData       scene;
+    };
+    layout(set=DRAW_UBO_MATERIAL, binding=0, std140) uniform materialBuffer {
+      MaterialData    material;
+    };
+    
+  #elif UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC
+  
+    layout(set=0, binding=DRAW_UBO_SCENE, std140) uniform sceneBuffer {
+      SceneData       scene;
+    };
+    layout(set=0, binding=DRAW_UBO_MATERIAL, std140) uniform materialBuffer {
+      MaterialData    material;
+    };
+    
+  #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
+  
+    layout(set=0, binding=DRAW_UBO_SCENE, std140) uniform sceneBuffer {
+      SceneData       scene;
+    };
+    layout(std140, push_constant) uniform materialBuffer {
+      layout(offset = 128)
+      MaterialData    material;
+    };
+    
+  #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
+  
+    #define USE_INDEXING 1
+  
+    layout(std140, push_constant) uniform indexSetup {
+      int matrixIndex;
+      int materialIndex;
+    };  
+    layout(set=0, binding=DRAW_UBO_SCENE, std140) uniform sceneBuffer {
+      SceneData   scene;
+    };
+    layout(set=0, binding=DRAW_UBO_MATERIAL, std430) buffer materialBuffer {
+      MaterialData    materials[];
+    };
+    
+  #endif
+
 #else
-  MATERIAL_BINDING uniform materialBuffer {
-    MATERIAL_LAYOUT
-    MaterialData    materials[1];
+  layout(binding=DRAW_UBO_SCENE, std140) uniform sceneBuffer {
+    SceneData       scene;
   };
-  int mi = 0;
+  layout(binding=DRAW_UBO_MATERIAL, std140) uniform materialBuffer {
+    MaterialData    material;
+  };
 #endif
 
 layout(location=0) in Interpolants {
@@ -57,11 +96,26 @@ layout(location=0,index=0) out vec4 out_Color;
 
 void main()
 {
+
+#if USE_INDEXING
+
+  int mi = materialIndex * 2; // due to ubo-256 byte padding * 2, FIXME should use cleaner approach
+  
   if (WIREMODE != 0){
     out_Color = materials[mi].sides[1].diffuse*1.5 + 0.3;
   }
   else {
     MaterialSide side = materials[mi].sides[gl_FrontFacing ? 1 : 0];
+    
+#else
+
+  if (WIREMODE != 0){
+    out_Color = material.sides[1].diffuse*1.5 + 0.3;
+  }
+  else {
+    MaterialSide side = material.sides[gl_FrontFacing ? 1 : 0];
+    
+#endif
 
     vec4 color = side.ambient + side.emissive;
   

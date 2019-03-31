@@ -27,18 +27,7 @@
 
 #pragma once
 
-#include "resources.hpp"
-#include "vulkan/vulkan.h"
-
-#include <nv_helpers/tnulled.hpp>
-#include <nv_helpers_vk/base_vk.hpp>
-#include <nv_helpers_vk/swapchain_vk.hpp>
-#include <nv_helpers_vk/shadermodulemanager_vk.hpp>
-#include <nv_helpers_vk/window_vk.hpp>
-
-class NVPWindow;
-
-// single set, all UBOs use dynamic offsets and are used in all stages (slowest for gpu)
+ // single set, all UBOs use dynamic offsets and are used in all stages (slowest for gpu)
 #define UNIFORMS_ALLDYNAMIC         0
 // single set, more accurate stage assignments, only matrix & material are dynamic (slower for gpu)
 #define UNIFORMS_SPLITDYNAMIC       1
@@ -57,14 +46,25 @@ class NVPWindow;
 // CPU-wise faster given less data
 #define UNIFORMS_PUSHCONSTANTS_INDEX  5
 
-#define UNIFORMS_TECHNIQUE   UNIFORMS_MULTISETSDYNAMIC
+#define UNIFORMS_TECHNIQUE            UNIFORMS_MULTISETSDYNAMIC
 
-#define UBOS_NUM  3
+#define DRAW_UBOS_NUM  3
 
 // cmdbuffers in worker threads are secondary, otherwise primary
 #define USE_THREADED_SECONDARIES    1
 // only use one big buffer for all geometries, otherwise individual
 #define USE_SINGLE_GEOMETRY_BUFFERS 1
+
+#include "resources.hpp"
+#include "vulkan/vulkan.h"
+
+#include <main.h>
+
+#include <nv_helpers/tnulled.hpp>
+#include <nv_helpers_vk/base_vk.hpp>
+#include <nv_helpers_vk/swapchain_vk.hpp>
+#include <nv_helpers_vk/shadermodulemanager_vk.hpp>
+#include <nv_helpers_vk/context_vk.hpp>
 
 namespace csfthreaded {
   template <typename T>
@@ -204,7 +204,7 @@ namespace csfthreaded {
     
 
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
-    nv_helpers_vk::DescriptorPipelineContainer<UBOS_NUM>  m_drawing;
+    nv_helpers_vk::DescriptorPipelineContainer<DRAW_UBOS_NUM>  m_drawing;
 #else
     nv_helpers_vk::DescriptorPipelineContainer<1>         m_drawing;
 #endif

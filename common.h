@@ -34,27 +34,47 @@
 #define VERTEX_ASSIGNS  2
 
 // changing these orders may break a lot of things ;)
-#define UBO_ANIM      0
-#define UBO_SCENE     0
-#define UBO_MATRIX    1
-#define UBO_MATERIAL  2
+#define DRAW_UBO_SCENE     0
+#define DRAW_UBO_MATRIX    1
+#define DRAW_UBO_MATERIAL  2
 
-#define SSBO_MATRIXOUT  1
-#define SSBO_MATRIXORIG 2
+#define ANIM_UBO              0
+#define ANIM_SSBO_MATRIXOUT   1
+#define ANIM_SSBO_MATRIXORIG  2
 
 #define ANIMATION_WORKGROUPSIZE 256
-
-#ifndef USE_POINTERS 
-#define USE_POINTERS 0
-#endif
-
-#ifndef USE_INDEXING
-#define USE_INDEXING 0
-#endif
 
 #ifndef WIREMODE
 #define WIREMODE 0
 #endif
+
+//////////////////////////////////////////////////////////////////////////
+
+// see resources_vk.hpp
+
+#ifndef UNIFORMS_ALLDYNAMIC
+#define UNIFORMS_ALLDYNAMIC 0
+#endif
+#ifndef UNIFORMS_SPLITDYNAMIC
+#define UNIFORMS_SPLITDYNAMIC 1
+#endif
+#ifndef UNIFORMS_MULTISETSDYNAMIC
+#define UNIFORMS_MULTISETSDYNAMIC 2
+#endif
+#ifndef UNIFORMS_MULTISETSSTATIC
+#define UNIFORMS_MULTISETSSTATIC 3
+#endif
+#ifndef UNIFORMS_PUSHCONSTANTS_RAW
+#define UNIFORMS_PUSHCONSTANTS_RAW 4
+#endif
+#ifndef UNIFORMS_PUSHCONSTANTS_INDEX
+#define UNIFORMS_PUSHCONSTANTS_INDEX 5
+#endif
+#ifndef UNIFORMS_TECHNIQUE
+#define UNIFORMS_TECHNIQUE UNIFORMS_MULTISETSDYNAMIC
+#endif
+
+//////////////////////////////////////////////////////////////////////////
 
 #ifdef __cplusplus
 namespace csfthreaded
@@ -114,44 +134,5 @@ struct AnimationData {
 }
 #endif
 
-
-#if defined(GL_core_profile) || defined(GL_compatibility_profile) || defined(GL_es_profile)
-// prevent this to be used by c++
-
-#ifndef UBOBINDING
-#define UBOBINDING(ubo)     layout(std140, binding= (ubo))
-#endif
-
-#ifndef SSBOBINDING
-#define SSBOBINDING(ssbo)   layout(std430, binding= (ssbo))
-#endif
-
-#ifndef MATERIAL_LAYOUT
-#define MATERIAL_LAYOUT
-#endif
-
-#ifndef MATRIX_LAYOUT
-#define MATRIX_LAYOUT
-#endif
-
-#ifndef MATERIAL_BINDING
-#define MATERIAL_BINDING    UBOBINDING(UBO_MATERIAL)
-#endif
-
-#ifndef MATRIX_BINDING
-#define MATRIX_BINDING      UBOBINDING(UBO_MATRIX)
-#endif
-
-#if USE_INDEXING
-  #ifdef INDEXING_SETUP
-    INDEXING_SETUP
-  #else
-    // debug
-    int matrixIndex   = 0;
-    int materialIndex = 0;
-  #endif
-#endif
-
-#endif
 
 #endif

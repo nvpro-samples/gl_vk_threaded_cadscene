@@ -186,24 +186,18 @@ namespace csfthreaded
 
       if (m_bindless_ubo){
         glEnableClientState(GL_UNIFORM_BUFFER_UNIFIED_NV);
-        glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_SCENE,0,0);
-        glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_MATRIX,0,0);
-        glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_MATERIAL,0,0);
+        glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_SCENE,0,0);
+        glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_MATRIX,0,0);
+        glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_MATERIAL,0,0);
       }
     }
 
     if (vbum && m_bindless_ubo){
-      glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_SCENE, res->m_buffers.scene.bufferADDR,sizeof(SceneData));
+      glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_SCENE, res->m_buffers.scene.bufferADDR,sizeof(SceneData));
     }
     else{
-      glBindBufferBase(GL_UNIFORM_BUFFER,UBO_SCENE, res->m_buffers.scene.buffer);
+      glBindBufferBase(GL_UNIFORM_BUFFER, DRAW_UBO_SCENE, res->m_buffers.scene.buffer);
     }
-
-#if USE_INDEXING
-    // for debugging purposes only
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,UBO_MATERIAL, res->m_buffers.materials);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,UBO_MATRIX,   res->m_buffers.matrices);
-#endif
 
     {
       int lastMaterial = -1;
@@ -252,10 +246,10 @@ namespace csfthreaded
         if (lastMatrix != di.matrixIndex){
 
           if (vbum && m_bindless_ubo){
-            glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_MATRIX, res->m_buffers.matrices.bufferADDR + res->m_alignedMatrixSize * di.matrixIndex, sizeof(CadScene::MatrixNode));
+            glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_MATRIX, res->m_buffers.matrices.bufferADDR + res->m_alignedMatrixSize * di.matrixIndex, sizeof(CadScene::MatrixNode));
           }
           else{
-            glBindBufferRange(GL_UNIFORM_BUFFER,UBO_MATRIX, res->m_buffers.matrices.buffer, res->m_alignedMatrixSize * di.matrixIndex, sizeof(CadScene::MatrixNode));
+            glBindBufferRange(GL_UNIFORM_BUFFER, DRAW_UBO_MATRIX, res->m_buffers.matrices.buffer, res->m_alignedMatrixSize * di.matrixIndex, sizeof(CadScene::MatrixNode));
           }
 
           lastMatrix = di.matrixIndex;
@@ -266,10 +260,10 @@ namespace csfthreaded
         if (lastMaterial != di.materialIndex){
 
           if (m_vbum && m_bindless_ubo){
-            glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,UBO_MATERIAL, res->m_buffers.materials.bufferADDR + res->m_alignedMaterialSize * di.materialIndex, sizeof(CadScene::Material));
+            glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_MATERIAL, res->m_buffers.materials.bufferADDR + res->m_alignedMaterialSize * di.materialIndex, sizeof(CadScene::Material));
           }
           else{
-            glBindBufferRange(GL_UNIFORM_BUFFER,UBO_MATERIAL, res->m_buffers.materials.buffer, res->m_alignedMaterialSize * di.materialIndex, sizeof(CadScene::Material));
+            glBindBufferRange(GL_UNIFORM_BUFFER, DRAW_UBO_MATERIAL, res->m_buffers.materials.buffer, res->m_alignedMaterialSize * di.materialIndex, sizeof(CadScene::Material));
           }
 
           lastMaterial = di.materialIndex;
@@ -291,9 +285,9 @@ namespace csfthreaded
       statsWireMode = statsWireMode;
     }
 
-    glBindBufferBase(GL_UNIFORM_BUFFER,UBO_SCENE, 0);
-    glBindBufferBase(GL_UNIFORM_BUFFER,UBO_MATRIX, 0);
-    glBindBufferBase(GL_UNIFORM_BUFFER,UBO_MATERIAL, 0);
+    glBindBufferBase(GL_UNIFORM_BUFFER, DRAW_UBO_SCENE, 0);
+    glBindBufferBase(GL_UNIFORM_BUFFER, DRAW_UBO_MATRIX, 0);
+    glBindBufferBase(GL_UNIFORM_BUFFER, DRAW_UBO_MATERIAL, 0);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,0);
     glBindVertexBuffer(0,0,0,0);
