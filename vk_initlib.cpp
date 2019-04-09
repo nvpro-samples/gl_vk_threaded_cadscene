@@ -26,18 +26,19 @@
  */
 
 #include <assert.h>
-#include <main.h>
+#include <nvpwindow.hpp>
 
 #include <vulkan/vulkan.h>
 
 #if HAS_OPENGL
-#include <nv_helpers_gl/extensions_gl.hpp>
+#include <nvgl/extensions_gl.hpp>
+#include <nvgl/contextwindow_gl.hpp>
 #endif
 
 bool vulkanInitLibrary()
 {
 #if HAS_OPENGL
-  if (!load_GL_NV_draw_vulkan_image(NVPWindow::sysGetProcAddressGL)) return false;
+  if (!load_GL_NV_draw_vulkan_image(nvgl::ContextWindowGL::sysGetProcAddress)) return false;
 #endif
 
 #if USEVULKANSDK

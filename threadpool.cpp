@@ -28,7 +28,7 @@
 #include <platform.h>
 
 #include "threadpool.hpp"
-#include "nv_helpers/nvprint.hpp"
+#include "nvh/nvprint.hpp"
 #include <assert.h>
 
 #define THREADPOOL_TERMINATE_FUNC  ((ThreadPool::WorkerFunc)1)

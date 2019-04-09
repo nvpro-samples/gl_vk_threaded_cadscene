@@ -27,7 +27,7 @@
 
 #include "resources_vk.hpp"
 
-#include <nv_helpers_vk/extensions_vk.hpp>
+#include <nvvk/extensions_vk.hpp>
 
 
 namespace csfthreaded {
@@ -66,7 +66,14 @@ namespace csfthreaded {
     bool                          m_generatedCommandsSupport;
     TableContent                  m_table;
 
-    bool init(NVPWindow* window);
+    bool init(
+#if HAS_OPENGL
+      nvgl::ContextWindowGL *contextWindow,
+#else
+      nvvk::ContextWindowVK *contextWindow,
+#endif
+      nvh::Profiler* profiler
+    );
 
     bool initScene(const CadScene&);
     void deinitScene();

@@ -29,14 +29,21 @@
 
 #include <platform.h>
 #include "cadscene.hpp"
-#include <nv_helpers_gl/glsltypes_gl.hpp>
-#include <nv_helpers/profiler.hpp>
+#include <nvgl/glsltypes_gl.hpp>
+#include <nvh/profiler.hpp>
+#if HAS_OPENGL
+#include <nvgl/contextwindow_gl.hpp>
+typedef nvgl::ContextWindowGL ContextWindow;
+#else
+#include <nvvk/contextwindow_vk.hpp>
+typedef nvvk::ContextWindowVK ContextWindow;
+#endif   
+
 #include <algorithm>
 
-class NVPWindow;
 struct ImDrawData;
 
-using namespace nv_math;
+using namespace nvmath;
 #include "common.h"
 
 
@@ -101,7 +108,7 @@ namespace csfthreaded {
     
     virtual void synchronize() {}
 
-    virtual bool init(NVPWindow *window) { return false; }
+    virtual bool init(ContextWindow* window, nvh::Profiler* profiler) { return false; }
     virtual void deinit() {}
     
     virtual bool initPrograms(const std::string& path, const std::string& prepend) { return true;}
@@ -119,11 +126,9 @@ namespace csfthreaded {
     virtual void blitFrame(const Global& global) {}
     virtual void endFrame() {}
 
-    virtual nv_math::mat4f perspectiveProjection( float fovy, float aspect, float nearPlane, float farPlane) const {
-      return nv_math::perspective(fovy, aspect, nearPlane, farPlane);
+    virtual nvmath::mat4f perspectiveProjection( float fovy, float aspect, float nearPlane, float farPlane) const {
+      return nvmath::perspective(fovy, aspect, nearPlane, farPlane);
     }
-
-    virtual nv_helpers::Profiler::GPUInterface*  getTimerInterface() { return NULL; }
 
     inline void initAlignedSizes(unsigned int alignment){
       m_alignedMatrixSize   = (uint32_t)(alignedSize(sizeof(CadScene::MatrixNode), alignment));

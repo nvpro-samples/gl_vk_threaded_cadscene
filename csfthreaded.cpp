@@ -33,39 +33,46 @@
 
 #if HAS_OPENGL
   #include <include_gl.h>
-  #include <nv_helpers_gl/appwindowprofiler_gl.hpp>
-  #include <nv_helpers_gl/error_gl.hpp>
-  #include <nv_helpers_gl/base_gl.hpp>
-  #include <nv_helpers_gl/glsltypes_gl.hpp>
+  #include <nvgl/appwindowprofiler_gl.hpp>
+  #include <nvgl/error_gl.hpp>
+  #include <nvgl/base_gl.hpp>
+  #include <nvgl/glsltypes_gl.hpp>
 #else
-  #include <nv_helpers/appwindowprofiler.hpp>
+  #include <nvvk/appwindowprofiler_vk.hpp>
 #endif
 
-#include <nv_helpers/geometry.hpp>
-#include <nv_helpers/misc.hpp>
-#include <nv_helpers/cameracontrol.hpp>
+#include <nvvk/context_vk.hpp>
+
+#include <nvh/geometry.hpp>
+#include <nvh/misc.hpp>
+#include <nvh/cameracontrol.hpp>
 
 #include "renderer.hpp"
 
 
-using namespace nv_helpers;
-using namespace nv_helpers_gl;
+using namespace nvh;
+using namespace nvgl;
 
 
 namespace csfthreaded
 {
   int const SAMPLE_SIZE_WIDTH(800);
   int const SAMPLE_SIZE_HEIGHT(600);
-  int const SAMPLE_MAJOR_VERSION(4);
-  int const SAMPLE_MINOR_VERSION(5);
 
+  void setupVulkanContextInfo(nvvk::ContextInfoVK& info) 
+  {
+  #if _DEBUG && !HAS_OPENGL
+    info.addInstanceLayer("VK_LAYER_LUNARG_standard_validation");
+  #endif
+    info.addDeviceExtension(VK_NVX_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME, true);
+  }
 
   
   class Sample 
   #if HAS_OPENGL
-  : public nv_helpers_gl::AppWindowProfilerGL 
+  : public nvgl::AppWindowProfilerGL 
   #else
-  : public nv_helpers::AppWindowProfiler
+  : public nvvk::AppWindowProfilerVK
   #endif
   
   {
@@ -108,9 +115,10 @@ namespace csfthreaded
 
     CadScene                    m_scene;
     std::vector<unsigned int>   m_renderersSorted;
+    std::string                 m_rendererName;
 
-    Renderer* NV_RESTRICT      m_renderer;
-    Resources* NV_RESTRICT     m_resources;
+    Renderer* NV_RESTRICT       m_renderer;
+    Resources* NV_RESTRICT      m_resources;
     Resources::Global           m_shared;
 
     std::string                 m_modelFilename = "geforce.csf.gz";
@@ -130,20 +138,28 @@ namespace csfthreaded
     void deinitRenderer();
 
     void setupConfigParameters();
+    void setRendererFromName();
 
     Sample() 
     #if HAS_OPENGL
-      : AppWindowProfilerGL(false)
+      : AppWindowProfilerGL(false, true)
     #else
-      : AppWindowProfiler(NVPWindow::WINDOW_API_VULKAN, false, true)
+      : AppWindowProfilerVK(false, true)
     #endif
     {
       setupConfigParameters();
+    #if !HAS_OPENGL
+      setupVulkanContextInfo(m_contextInfo);
+    #endif
     }
 
   public:
 
-    void parseConfig(int argc, const char**argv, const std::string& path) override;
+    bool validateConfig() override;
+
+    void postBenchmarkAdvance() override {
+      setRendererFromName();
+    }
 
     bool begin() override;
     void think(double time) override;
@@ -186,28 +202,8 @@ namespace csfthreaded
 
       return ImGuiH::key_button(button, action, mods);
     }
+   
 
-#if HAS_OPENGL
-    const ContextFlagsBase* preWindowContext(int apiMajor, int apiMinor) {
-      static ContextFlagsGL info;
-      info.major = apiMajor;
-      info.minor = apiMinor;
-      info.device = Resources::s_glDevice;
-
-      return (const ContextFlagsBase*)&info;
-    }
-#else
-    const ContextFlagsBase* preWindowContext(int apiMajor, int apiMinor) {
-      static ContextFlagsVK info;
-      info.device = Resources::s_vkDevice;
-    #if _DEBUG && 1
-      info.addInstanceLayer("VK_LAYER_LUNARG_standard_validation");
-    #endif
-      info.addDeviceExtension(VK_NVX_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME,true);
-
-      return (const ContextFlagsBase*)&info;
-    }
-#endif
   };
 
 
@@ -220,13 +216,13 @@ namespace csfthreaded
   {
     std::string modelFilename(filename);
 
-    if (!nv_helpers::fileExists(filename)) {
-      modelFilename = nv_helpers::getFileName(filename);
+    if (!nvh::fileExists(filename)) {
+      modelFilename = nvh::getFileName(filename);
       std::vector<std::string>  searchPaths;
       searchPaths.push_back("./");
       searchPaths.push_back(sysExePath() + PROJECT_RELDIRECTORY + "/");
       searchPaths.push_back(PROJECT_DOWNLOAD_ABSDIRECTORY);
-      modelFilename = nv_helpers::findFile(modelFilename, searchPaths);
+      modelFilename = nvh::findFile(modelFilename, searchPaths);
     }
 
     m_scene.unload();
@@ -272,8 +268,8 @@ namespace csfthreaded
         m_resources->deinit();
       }
       m_resources = Renderer::getRegistry()[type]->resources();
-      bool valid = m_resources->init(this);
-      valid = valid && m_resources->initFramebuffer(m_window.m_viewsize[0],m_window.m_viewsize[1],m_tweak.msaa, getVsync());
+      bool valid = m_resources->init(&m_contextWindow, &m_profiler);
+      valid = valid && m_resources->initFramebuffer(m_windowState.m_viewSize[0],m_windowState.m_viewSize[1],m_tweak.msaa, getVsync());
       valid = valid && m_resources->initPrograms(sysExePath(), std::string());
       valid = valid && m_resources->initScene(m_scene);
       m_resources->m_frame = 0;
@@ -310,7 +306,6 @@ namespace csfthreaded
 
   bool Sample::begin()
   {
-
 #if !PRINT_TIMER_STATS
     m_profilerPrint = false;
     m_timeInTitle = true;
@@ -318,9 +313,7 @@ namespace csfthreaded
     m_profilerPrint = true;
     m_timeInTitle = true;
 #endif
-
-    m_profiler.setDefaultGPUInterface(NULL);
-
+    
     m_renderer = NULL;
     m_resources = NULL;
 
@@ -328,7 +321,7 @@ namespace csfthreaded
 
     Renderer::s_threadpool.init(maxthreads);
 
-    ImGuiH::Init(m_window.m_viewsize[0], m_window.m_viewsize[1], this);
+    ImGuiH::Init(m_windowState.m_viewSize[0], m_windowState.m_viewSize[1], this);
 
 #if HAS_OPENGL
     {
@@ -336,9 +329,7 @@ namespace csfthreaded
       // it will disable optimizations
       glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
       glDisable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-
-      m_debugFilter = GL_DEBUG_SEVERITY_HIGH;
-
+      
       GLuint defaultVAO;
       glGenVertexArrays(1, &defaultVAO);
       glBindVertexArray(defaultVAO);
@@ -346,7 +337,7 @@ namespace csfthreaded
 #endif
 
 #if defined (NDEBUG)
-    vsync(false);
+    setVsync(false);
 #endif
 
     bool validated(true);
@@ -379,6 +370,7 @@ namespace csfthreaded
       LOGI("renderers found: %d %s\n", uint32_t(i), registry[m_renderersSorted[i]]->name());
     }
 
+    setRendererFromName();
   
     if (m_useUI){
       auto &imgui_io = ImGui::GetIO();
@@ -400,9 +392,9 @@ namespace csfthreaded
       m_ui.enumAdd(GUI_MSAA, 8, "8x");
     }
 
-    m_control.m_sceneOrbit =     nv_math::vec3f(m_scene.m_bbox.max+m_scene.m_bbox.min)*0.5f;
-    m_control.m_sceneDimension = nv_math::length((m_scene.m_bbox.max-m_scene.m_bbox.min));
-    m_control.m_viewMatrix =     nv_math::look_at(m_control.m_sceneOrbit - (-vec3(1,1,1)*m_control.m_sceneDimension*0.5f), m_control.m_sceneOrbit, vec3(0,1,0));
+    m_control.m_sceneOrbit =     nvmath::vec3f(m_scene.m_bbox.max+m_scene.m_bbox.min)*0.5f;
+    m_control.m_sceneDimension = nvmath::length((m_scene.m_bbox.max-m_scene.m_bbox.min));
+    m_control.m_viewMatrix =     nvmath::look_at(m_control.m_sceneOrbit - (-vec3(1,1,1)*m_control.m_sceneDimension*0.5f), m_control.m_sceneOrbit, vec3(0,1,0));
 
     m_shared.animUbo.sceneCenter      = m_control.m_sceneOrbit;
     m_shared.animUbo.sceneDimension   = m_control.m_sceneDimension * 0.2f;
@@ -495,18 +487,18 @@ namespace csfthreaded
 
   void Sample::think(double time)
   {
-    int width   = m_window.m_viewsize[0];
-    int height  = m_window.m_viewsize[1];
+    int width   = m_windowState.m_viewSize[0];
+    int height  = m_windowState.m_viewSize[1];
     
     if (m_useUI) {
       processUI(width, height, time);
     }
 
-    m_control.processActions(m_window.m_viewsize,
-      nv_math::vec2f(m_window.m_mouseCurrent[0],m_window.m_mouseCurrent[1]),
-      m_window.m_mouseButtonFlags, m_window.m_wheel);
+    m_control.processActions(m_windowState.m_viewSize,
+      nvmath::vec2f(m_windowState.m_mouseCurrent[0],m_windowState.m_mouseCurrent[1]),
+      m_windowState.m_mouseButtonFlags, m_windowState.m_mouseWheel);
 
-    if (m_window.onPress(KEY_R)){
+    if (m_windowState.onPress(KEY_R)){
       m_resources->synchronize();
       m_resources->reloadPrograms(std::string());
     }
@@ -560,18 +552,18 @@ namespace csfthreaded
 
       sceneUbo.viewport = ivec2(width,height);
 
-      nv_math::mat4 projection = m_resources->perspectiveProjection((45.f), float(width)/float(height), m_control.m_sceneDimension*0.001f, m_control.m_sceneDimension*10.0f);
-      nv_math::mat4 view = m_control.m_viewMatrix;
+      nvmath::mat4 projection = m_resources->perspectiveProjection((45.f), float(width)/float(height), m_control.m_sceneDimension*0.001f, m_control.m_sceneDimension*10.0f);
+      nvmath::mat4 view = m_control.m_viewMatrix;
 
       if (m_tweak.animation && m_tweak.animationSpin){
         double animTime = (time - m_animBeginTime) * 0.3 + nv_pi*0.2;
         vec3 dir = vec3(cos(animTime),1, sin(animTime));
-        view = nv_math::look_at(m_control.m_sceneOrbit - (-dir*m_control.m_sceneDimension*0.5f), m_control.m_sceneOrbit, vec3(0,1,0));
+        view = nvmath::look_at(m_control.m_sceneOrbit - (-dir*m_control.m_sceneDimension*0.5f), m_control.m_sceneOrbit, vec3(0,1,0));
       }
 
       sceneUbo.viewProjMatrix = projection * view;
       sceneUbo.viewMatrix = view;
-      sceneUbo.viewMatrixIT = nv_math::transpose(nv_math::invert(view));
+      sceneUbo.viewMatrixIT = nvmath::transpose(nvmath::invert(view));
 
       sceneUbo.viewPos = sceneUbo.viewMatrixIT.row(3);;
       sceneUbo.viewDir = -view.row(2);
@@ -581,15 +573,9 @@ namespace csfthreaded
 
       m_shared.workingSet = m_tweak.workingSet;
     }
-
-
-    // We use the timer sections that force flushes, to get more accurate CPU costs
-    // per section. In shipping application you would not want to do this
-
+    
     if (m_tweak.animation)
     {
-      NV_PROFILE_SECTION_EX("Anim.", m_resources->getTimerInterface(), true );
-
       AnimationData& animUbo = m_shared.animUbo;
       animUbo.time = float(time - m_animBeginTime);
 
@@ -597,13 +583,10 @@ namespace csfthreaded
     }
 
     {
-      NV_PROFILE_SECTION_EX("Render", m_resources->getTimerInterface(), true );
-      m_renderer->draw(m_tweak.shade,m_resources,m_shared,m_profiler);
+      m_renderer->draw(m_tweak.shade,m_resources,m_shared);
     }
 
     {
-      NV_PROFILE_SECTION_EX("BltUI", m_resources->getTimerInterface(), true);
-
       if (m_useUI) {
         ImGui::Render();
         m_shared.imguiDrawData = ImGui::GetDrawData();
@@ -630,41 +613,30 @@ namespace csfthreaded
     initFramebuffers(width,height);
   }
 
-  static std::string addPath(std::string const &defaultPath, std::string const &filename)
+  void Sample::setRendererFromName()
   {
-    if (
-#ifdef _WIN32
-      filename.find(':') != std::string::npos
-#else
-      !filename.empty() && filename[0] == '/'
-#endif
-      )
-    {
-      return filename;
+    if (!m_rendererName.empty()) {
+      const Renderer::Registry registry = Renderer::getRegistry();
+      for (size_t i = 0; i < m_renderersSorted.size(); i++) {
+        if (strcmp( m_rendererName.c_str(), registry[m_renderersSorted[i]]->name() ) == 0) {
+          m_tweak.renderer = int( i );
+        }
+      }
     }
-    else {
-      return defaultPath + "/" + filename;
-    }
-  }
-
-  static bool endsWith(std::string const &s, std::string const &end) {
-    if (s.length() >= end.length()) {
-      return (0 == s.compare(s.length() - end.length(), end.length(), end));
-    }
-    else {
-      return false;
-    }
-
   }
 
   void Sample::setupConfigParameters()
   {
+    m_parameterList.addFilename(".csf", &m_modelFilename);
+    m_parameterList.addFilename(".csf.gz", &m_modelFilename);
+
     m_parameterList.add("vkdevice", &Resources::s_vkDevice);
     m_parameterList.add("gldevice", &Resources::s_glDevice);
 
     m_parameterList.add("noui", &m_useUI, false);
 
     m_parameterList.add("renderer", (uint32_t*)&m_tweak.renderer);
+    m_parameterList.add("renderernamed", &m_rendererName);
     m_parameterList.add("strategy", (uint32_t*)&m_tweak.strategy);
     m_parameterList.add("shademode", (uint32_t*)&m_tweak.shade);
     m_parameterList.add("workerthreads", &m_tweak.threads);
@@ -675,56 +647,42 @@ namespace csfthreaded
     m_parameterList.add("minstatechanges", &m_tweak.sorted);
     m_parameterList.add("workingset", &m_tweak.workingSet);
   }
-
-  void Sample::parseConfig(int argc, const char**argv, const std::string& defaultPath)
+  
+  bool Sample::validateConfig()
   {
-    for (uint32_t i = 0; i < uint32_t(argc); i++) {
-      std::string argstr = std::string(argv[i]);
-      if (endsWith(argstr, ".exe")) {}
-      else if (endsWith(argstr, ".cfg") || endsWith(argstr, ".bat")) {
-        parseConfigFile(argv[i]);
-      }
-      else if (strstr(argv[i], ".csf")) {
-        m_modelFilename = addPath(defaultPath, argstr);
-      }
-      else if (m_parameterList.applyParameters(argc, argv, i, "-", defaultPath.c_str())) {
-        int t = 0;
-      }
-      else {
-        LOGOK("  unhandled argument %s\n", argv[i]);
-      }
+    if (m_modelFilename.empty())
+    {
+      LOGI("no .csf model file specified\n");
+      LOGI("exe <filename.csf/cfg> parameters...\n");
+      m_parameterList.print();
+      return false;
     }
+    return true;
   }
   
 }
 
 using namespace csfthreaded;
 
-int sample_main(int argc, const char** argv)
+int main(int argc, const char** argv)
 {
-  SETLOGFILENAME();
+  NVPWindow::System system(argv[0], PROJECT_NAME);
+
 #if defined(_WIN32) && defined(NDEBUG)
-  SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+  //SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
 #endif
+
   Sample sample;
-  sample.parseConfig(argc,argv, ".");
-  if (sample.m_modelFilename.empty())
   {
-    LOGI("exe <filename.csf/cfg> parameters...\n");
-    sample.m_parameterList.print();
-    return 0;
+    std::vector<std::string> directories;
+    directories.push_back(".");
+    directories.push_back(NVPWindow::sysExePath() + std::string(PROJECT_RELDIRECTORY));
+    sample.m_modelFilename = nvh::findFile(std::string("geforce.csf.gz"), directories);
   }
 
   return sample.run(
     PROJECT_NAME,
     argc, argv,
-    SAMPLE_SIZE_WIDTH, SAMPLE_SIZE_HEIGHT,
-    SAMPLE_MAJOR_VERSION, SAMPLE_MINOR_VERSION);
+    SAMPLE_SIZE_WIDTH, SAMPLE_SIZE_HEIGHT);
 }
-
-void sample_print(int level, const char * fmt)
-{
-
-}
-
 

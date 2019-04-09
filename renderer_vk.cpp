@@ -33,11 +33,11 @@
 
 #include "resources_vk.hpp"
 #include "renderer.hpp"
-#include <main.h>
 
-#include <nv_math/nv_math_glsltypes.h>
+#include <nvmath/nvmath_glsltypes.h>
+#include <nvh/nvprint.hpp>
 
-using namespace nv_math;
+using namespace nvmath;
 #include "common.h"
 
 
@@ -113,9 +113,8 @@ namespace csfthreaded
 
     void init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config);
     void deinit();
-    void draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler);
+    void draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global);
 
-    void blit(ShadeType shadeType, Resources* NV_RESTRICT resources, const Resources::Global& global );
 
     Mode            m_mode;
 
@@ -358,7 +357,7 @@ namespace csfthreaded
     vkDestroyCommandPool(m_resources->m_device, m_cmdPool, NULL);
   }
 
-  void RendererVK::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler)
+  void RendererVK::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global)
   {
     const CadScene* NV_RESTRICT scene = m_scene;
     ResourcesVK* res = (ResourcesVK*)resources;
@@ -373,20 +372,22 @@ namespace csfthreaded
     }
 
     
-    // generic state setup
     VkCommandBuffer primary = res->createTempCmdBuffer();
-    vkCmdUpdateBuffer(primary, res->buffers.scene, 0, sizeof(SceneData), (const uint32_t*)&global.sceneUbo);
-    res->cmdPipelineBarrier(primary);
 
-    // clear via pass
-    res->cmdBeginRenderPass(primary, true, true);
-    if (!sc.cmdbuffers.empty()){
-      vkCmdExecuteCommands(primary, uint32_t(sc.cmdbuffers.size()), sc.cmdbuffers.data() );
+    {
+      nvvk::ProfilerVK::Section profile(res->m_profilerVK, "Render", primary);
+
+      vkCmdUpdateBuffer(primary, res->buffers.scene, 0, sizeof(SceneData), (const uint32_t*)&global.sceneUbo);
+      res->cmdPipelineBarrier(primary);
+
+      // clear via pass
+      res->cmdBeginRenderPass(primary, true, true);
+      if (!sc.cmdbuffers.empty()){
+        vkCmdExecuteCommands(primary, uint32_t(sc.cmdbuffers.size()), sc.cmdbuffers.data() );
+      }
+      vkCmdEndRenderPass(primary);
     }
-    vkCmdEndRenderPass(primary);
     vkEndCommandBuffer(primary);
-
-
     res->submissionEnqueue(primary);
   }
   

@@ -33,11 +33,11 @@
 
 #include "resources_vkgen.hpp"
 #include "renderer.hpp"
-#include <main.h>
 
-#include <nv_math/nv_math_glsltypes.h>
+#include <nvmath/nvmath_glsltypes.h>
+#include <nvh/nvprint.hpp>
 
-using namespace nv_math;
+using namespace nvmath;
 #include "common.h"
 
 
@@ -178,8 +178,8 @@ namespace csfthreaded
     void init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config);
     void deinit();
     
-    void build(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler);
-    void draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler);
+    void build(ShadeType shadetype, Resources* NV_RESTRICT resources, VkCommandBuffer primary);
+    void draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global);
     
     RendererVKGen()
     {
@@ -201,7 +201,7 @@ namespace csfthreaded
 
       uint32_t                          sequencesCount;
 
-      VkCommandBuffer                   cmdBuffer[nv_helpers_vk::MAX_RING_FRAMES];
+      VkCommandBuffer                   cmdBuffer[nvvk::MAX_RING_FRAMES];
 
       size_t                            fboIncarnation;
       size_t                            pipeIncarnation;
@@ -357,7 +357,7 @@ namespace csfthreaded
       m_resources->allocMemAndBindBuffer(sc.inputBuffer, sc.inputMemory);
 
       {
-        nv_helpers_vk::BasicStagingBuffer staging;
+        nvvk::FixedSizeStagingBuffer staging;
         staging.init(m_resources->m_device, &m_resources->m_physical->memoryProperties);
 
         m_resources->fillBuffer(staging, sc.inputBuffer, pipeOffset, sizeof(uint32_t) * pipelines.size(), pipelines.data());
@@ -561,7 +561,7 @@ namespace csfthreaded
     if (m_mode == MODE_RESET || m_mode == MODE_RESET_RELEASE) {
       for (int i = 0; i < NUM_SHADES; i++){
         // we will cycle through different pools every frame, to avoid synchronization locks
-        for (int n = 0; n < nv_helpers_vk::MAX_RING_FRAMES; n++){
+        for (int n = 0; n < nvvk::MAX_RING_FRAMES; n++){
           m_shades[i].cmdBuffer[n] = res->createCmdBuffer(m_cmdPool, true, false, false);
         }
       }
@@ -581,7 +581,7 @@ namespace csfthreaded
   {
     if (m_mode == MODE_RESET || m_mode == MODE_RESET_RELEASE) {
       for (int i = 0; i < NUM_SHADES; i++){
-        vkFreeCommandBuffers(m_resources->m_device, m_cmdPool, nv_helpers_vk::MAX_RING_FRAMES, m_shades[i].cmdBuffer);
+        vkFreeCommandBuffers(m_resources->m_device, m_cmdPool, nvvk::MAX_RING_FRAMES, m_shades[i].cmdBuffer);
       }
     }
     else if (m_mode == MODE_REUSE || m_mode == MODE_REUSE_IDXSEQ) {
@@ -637,7 +637,7 @@ namespace csfthreaded
     sc.pipeIncarnation = res->m_fboIncarnation;
   }
 
-  void RendererVKGen::build(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler)
+  void RendererVKGen::build(ShadeType shadetype, Resources* NV_RESTRICT resources, VkCommandBuffer primary)
   {
     const CadScene* NV_RESTRICT scene = m_scene;
     ResourcesVKGen* res = (ResourcesVKGen*)resources;
@@ -669,7 +669,6 @@ namespace csfthreaded
 
     m_targetCommandBuffer = target;
 
-    VkCommandBuffer primary = res->createTempCmdBuffer();
     VkCmdProcessCommandsInfoNVX info = { VkStructureType(VK_STRUCTURE_TYPE_CMD_PROCESS_COMMANDS_INFO_NVX) };
     info.indirectCommandsLayout = sc.indirectCmdsLayout;
     info.objectTable = res->m_table.objectTable;
@@ -695,27 +694,26 @@ namespace csfthreaded
     // do not actually modify the input tokens dynamically.
     //
     vkCmdProcessCommandsNVX(primary, &info );
-    vkEndCommandBuffer(primary);
-
-    res->submissionEnqueue(primary);
   }
 
-  void RendererVKGen::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler)
+  void RendererVKGen::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global)
   {
+    const CadScene* NV_RESTRICT scene = m_scene;
+    ResourcesVK* res = (ResourcesVK*)resources;
+
+    // generic state setup
+    VkCommandBuffer primary = res->createTempCmdBuffer();
+
     {
-      nv_helpers::Profiler::Section _tempTimer(profiler, "Build", resources->getTimerInterface(), false );
-      build(shadetype,resources,global,profiler);
+      nvvk::ProfilerVK::Section profile(res->m_profilerVK, "Build", primary);
+      build(shadetype, resources, primary);
     }
 
     {
-      nv_helpers::Profiler::Section _tempTimer(profiler, "Exec", resources->getTimerInterface(), false );
+      nvvk::ProfilerVK::Section profile(res->m_profilerVK, "Render", primary);
 
-      const CadScene* NV_RESTRICT scene = m_scene;
-      ResourcesVK* res = (ResourcesVK*)resources;
       ShadeCommand &sc = m_shades[shadetype];
 
-      // generic state setup
-      VkCommandBuffer primary = res->createTempCmdBuffer();
       vkCmdUpdateBuffer(primary, res->buffers.scene, 0, sizeof(SceneData), (const uint32_t*)&global.sceneUbo);
       res->cmdPipelineBarrier(primary);
 
@@ -730,11 +728,12 @@ namespace csfthreaded
         vkCmdExecuteCommands(primary, 1, &m_targetCommandBuffer);
       }
       vkCmdEndRenderPass(primary);
-      vkEndCommandBuffer(primary);
-
-      res->submissionEnqueue(primary);
     }
+
     m_targetCommandBuffer = NULL;
+   
+    vkEndCommandBuffer(primary);
+    res->submissionEnqueue(primary);
   }
 
 }

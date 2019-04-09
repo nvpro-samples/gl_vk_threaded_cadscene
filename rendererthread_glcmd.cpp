@@ -32,19 +32,21 @@
 #include <assert.h>
 #include <algorithm>
 #include <queue>
-#include <main.h>
+
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 
-#include <nv_helpers/spin_mutex.hpp>
+#include <nvh/spin_mutex.hpp>
 
 #include "renderer.hpp"
 #include "resources_gl.hpp"
 
-#include <nv_math/nv_math_glsltypes.h>
+#include <nvmath/nvmath_glsltypes.h>
 
-using namespace nv_math;
+#include <nvgl/contextwindow_gl.hpp>
+
+using namespace nvmath;
 #include "common.h"
 
 namespace csfthreaded
@@ -65,7 +67,7 @@ namespace csfthreaded
     {
       bool isAvailable() const
       {
-        return !!load_GL_NV_command_list(NVPWindow::sysGetProcAddressGL);
+        return !!load_GL_NV_command_list(nvgl::ContextWindowGL::sysGetProcAddress);
       }
       const char* name() const
       {
@@ -93,9 +95,7 @@ namespace csfthreaded
 
     void init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config);
     void deinit();
-    void draw(ShadeType shadetype, Resources*  NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler);
-
-    void blit(ShadeType shadeType, Resources* NV_RESTRICT resources, const Resources::Global& global );
+    void draw(ShadeType shadetype, Resources*  NV_RESTRICT resources, const Resources::Global& global);
 
 
     Mode    m_mode;
@@ -180,8 +180,8 @@ namespace csfthreaded
     size_t                          m_numEnqueues;
     std::queue<ShadeCommand*>       m_drawQueue;
 
-    nv_helpers::spin_mutex           m_workMutex;
-    nv_helpers::spin_mutex           m_drawMutex;
+    nvh::spin_mutex           m_workMutex;
+    nvh::spin_mutex           m_drawMutex;
 
     static void threadMaster( void* arg  )
     {
@@ -191,7 +191,7 @@ namespace csfthreaded
 
     bool getWork_ts( size_t &start, size_t &num )
     {
-      std::lock_guard<nv_helpers::spin_mutex>  lock(m_workMutex);
+      std::lock_guard<nvh::spin_mutex>  lock(m_workMutex);
       bool hasWork = false;
 
       const size_t chunkSize = m_workingSet;
@@ -466,7 +466,7 @@ namespace csfthreaded
 
   void RendererThreadedGLCMD::enqueueShadeCommand_ts( ShadeCommand *sc )
   {
-    std::lock_guard<nv_helpers::spin_mutex>  lock(m_drawMutex);
+    std::lock_guard<nvh::spin_mutex>  lock(m_drawMutex);
     m_drawQueue.push(sc);
   }
 
@@ -587,10 +587,12 @@ namespace csfthreaded
     }
   }
 
-  void RendererThreadedGLCMD::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler)
+  void RendererThreadedGLCMD::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global)
   {
     const CadScene* NV_RESTRICT scene = m_scene;
-    const ResourcesGL* NV_RESTRICT res = (ResourcesGL*)resources;
+    ResourcesGL* NV_RESTRICT res = (ResourcesGL*)resources;
+
+    const nvgl::ProfilerGL::Section profile(res->m_profilerGL, "Render");
 
     // generic state setup
     glViewport(0, 0, global.width, global.height);
@@ -648,7 +650,7 @@ namespace csfthreaded
         ShadeCommand* sc = NULL;
 
         {
-          std::lock_guard<nv_helpers::spin_mutex>  lock(m_drawMutex);
+          std::lock_guard<nvh::spin_mutex>  lock(m_drawMutex);
           if (!m_drawQueue.empty()) {
 
             sc = m_drawQueue.front();
@@ -691,23 +693,7 @@ namespace csfthreaded
 
     m_state = res->m_state;
   }
-
-  void RendererThreadedGLCMD::blit( ShadeType shadeType, Resources* NV_RESTRICT resources, const Resources::Global& global )
-  {
-    ResourcesGL* res = (ResourcesGL*)resources;
-
-    int width   = global.width;
-    int height  = global.height;
-
-    // blit to background
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, res->m_fbos.scene);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(0,0,width,height,
-      0,0,width,height,GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-  }
-
+  
 }
 
 #endif

@@ -28,17 +28,17 @@
 #pragma once
 
 #include "resources.hpp"
-#include <nv_helpers/tnulled.hpp>
-#include <nv_helpers_gl/base_gl.hpp>
-#include <nv_helpers_gl/profilertimers_gl.hpp>
-#include <nv_helpers_gl/programmanager_gl.hpp>
+#include <nvh/tnulled.hpp>
+#include <nvgl/base_gl.hpp>
+#include <nvgl/profiler_gl.hpp>
+#include <nvgl/programmanager_gl.hpp>
 
 namespace csfthreaded {
 
 
   template <typename T>
-  using TNulled = nv_helpers::TNulled<T>;
-  using GLBuffer = nv_helpers_gl::GLBuffer;
+  using TNulled = nvh::TNulled<T>;
+  using GLBuffer = nvgl::GLBuffer;
 
   template<class Theader, class Tcontent, int idname, class Tdef>
   class Token {
@@ -116,7 +116,7 @@ namespace csfthreaded {
 
 
     struct {
-      nv_helpers_gl::ProgramManager::ProgramID
+      nvgl::ProgramManager::ProgramID
         draw_object_tris,
         draw_object_line,
         compute_animation;
@@ -172,7 +172,7 @@ namespace csfthreaded {
       }
     };
 
-    nv_helpers_gl::ProgramManager   m_progManager;
+    nvgl::ProgramManager   m_progManager;
 
     bool  m_useResolve;
     int   m_width;
@@ -183,16 +183,15 @@ namespace csfthreaded {
     bool      m_bindless_ubo;
     bool      m_cmdlist;
 
-    nv_helpers_gl::ProfilerTimersGL m_gltimers;
-
     StateIncarnation  m_state;
+    nvgl::ProfilerGL  m_profilerGL;
 
     void synchronize()
     {
       glFinish();
     }
 
-    bool init(NVPWindow *window);
+    bool init(ContextWindow* window, nvh::Profiler* profiler);
     void deinit();
     
     bool initPrograms(const std::string& path, const std::string& prepend);
@@ -212,8 +211,6 @@ namespace csfthreaded {
     void blitFrame(const Global& global);
 
     void rebuildStateObjects() const;
-
-    nv_helpers::Profiler::GPUInterface*  getTimerInterface() { return &m_gltimers; }
 
     uvec2 storeU64(GLuint64 address) {
       return uvec2(address & 0xFFFFFFFF, address >> 32);

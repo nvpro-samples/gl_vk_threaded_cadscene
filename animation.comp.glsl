@@ -32,15 +32,15 @@
 
 layout (local_size_x = ANIMATION_WORKGROUPSIZE) in;
 
-layout(binding=ANIM_UBO) uniform animBuffer {
+layout(binding=ANIM_UBO, std140) uniform animBuffer {
   AnimationData   anim;
 };
 
-layout(binding=ANIM_SSBO_MATRIXOUT) restrict buffer matricesBuffer {
+layout(binding=ANIM_SSBO_MATRIXOUT, std430) restrict buffer matricesBuffer {
   MatrixData animated[];
 };
 
-layout(binding=ANIM_SSBO_MATRIXORIG) restrict buffer matricesOrigBuffer {
+layout(binding=ANIM_SSBO_MATRIXORIG, std430) restrict buffer matricesOrigBuffer {
   MatrixData original[];
 };
 

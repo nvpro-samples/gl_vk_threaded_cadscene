@@ -29,9 +29,9 @@
 
 #include <imgui/imgui_impl_gl.h>
 
-#include <main.h>
+#include <nvgl/contextwindow_gl.hpp>
 
-using namespace nv_helpers_gl;
+using namespace nvgl;
 
 namespace csfthreaded {
 
@@ -93,7 +93,7 @@ namespace csfthreaded {
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
-    m_gltimers.deinit();
+    m_profilerGL.deinit();
 
     ImGui::ShutdownGL();
   }
@@ -158,7 +158,7 @@ namespace csfthreaded {
 
   bool ResourcesGL::initPrograms(const std::string& path, const std::string &prepend)
   {
-    m_progManager.m_filetype = nv_helpers::ShaderFileManager::FILETYPE_GLSL;
+    m_progManager.m_filetype = nvh::ShaderFileManager::FILETYPE_GLSL;
     m_progManager.m_prepend = prepend;
     if (m_cmdlist) {
       m_progManager.m_prepend += std::string("#extension GL_NV_gpu_shader5 : require\n#extension GL_NV_command_list : require \nlayout(commandBindableNV) uniform;\n");
@@ -167,7 +167,7 @@ namespace csfthreaded {
     m_progManager.addDirectory(path);
     m_progManager.addDirectory(std::string("GLSL_" PROJECT_NAME));
     m_progManager.addDirectory(path + std::string(PROJECT_RELDIRECTORY));
-    m_progManager.addDirectory(std::string(PROJECT_ABSDIRECTORY));
+    //m_progManager.addDirectory(std::string(PROJECT_ABSDIRECTORY));
     
     m_progManager.registerInclude("common.h", "common.h");
 
@@ -227,7 +227,7 @@ namespace csfthreaded {
     ResourcesGL::s_token_sizes[type] = sizeof(T);
   }
 
-  bool ResourcesGL::init(NVPWindow *window)
+  bool ResourcesGL::init(ContextWindow* contextWindowGL, nvh::Profiler* profiler)
   {
     ImGui::InitGL();
 
@@ -235,10 +235,11 @@ namespace csfthreaded {
     glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT,&uboAlignment);
     initAlignedSizes(uboAlignment);
 
-    m_gltimers.init( nv_helpers::Profiler::START_TIMERS);
+    m_profilerGL = nvgl::ProfilerGL(profiler);
+    m_profilerGL.init();
 
-    m_bindless_ubo = !!NVPWindow::sysExtensionSupportedGL("GL_NV_uniform_buffer_unified_memory");
-    m_cmdlist      = !!load_GL_NV_command_list(NVPWindow::sysGetProcAddressGL);
+    m_bindless_ubo = !!contextWindowGL->extensionSupported("GL_NV_uniform_buffer_unified_memory");
+    m_cmdlist      = !!load_GL_NV_command_list(ContextWindowGL::sysGetProcAddress);
 
     if (m_cmdlist){
       registerSize<TerminateSequenceCommandNV>(GL_TERMINATE_SEQUENCE_COMMAND_NV          );
@@ -336,9 +337,9 @@ namespace csfthreaded {
     // temp workaround
     glBufferAddressRangeNV(GL_VERTEX_ATTRIB_ARRAY_ADDRESS_NV,0,0,0);
     glBufferAddressRangeNV(GL_ELEMENT_ARRAY_ADDRESS_NV,0,0,0);
-    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_MATERIAL,0,0);
-    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_MATRIX,0,0);
-    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, DRAW_UBO_SCENE,0,0);
+    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,DRAW_UBO_MATERIAL,0,0);
+    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,DRAW_UBO_MATRIX,0,0);
+    glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV,DRAW_UBO_SCENE,0,0);
 
     // we will do a series of state captures
     glBindFramebuffer(GL_FRAMEBUFFER, m_fbos.scene);
@@ -363,7 +364,7 @@ namespace csfthreaded {
   {
     glUseProgram(m_programs.compute_animation);
     
-    glBindBufferBase(GL_UNIFORM_BUFFER, ANIM_UBO, m_buffers.anim.buffer);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_buffers.anim.buffer);
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(AnimationData), &global.animUbo);
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ANIM_SSBO_MATRIXOUT, m_buffers.matrices.buffer);

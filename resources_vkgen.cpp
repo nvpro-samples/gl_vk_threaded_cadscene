@@ -34,9 +34,16 @@ extern bool vulkanIsExtensionSupported(uint32_t deviceIdx, const char* name);
 
 namespace csfthreaded {
 
-  bool ResourcesVKGen::init(NVPWindow* window)
+  bool ResourcesVKGen::init(
+#if HAS_OPENGL
+    nvgl::ContextWindowGL *contextWindow,
+#else
+    nvvk::ContextWindowVK *contextWindow,
+#endif
+    nvh::Profiler* profiler
+  )
   {
-    bool valid = ResourcesVK::init(window);
+    bool valid = ResourcesVK::init(contextWindow, profiler);
 
     m_generatedCommandsSupport = load_VK_NVX_device_generated_commands(m_device, vkGetDeviceProcAddr) ? true : false;
     return valid && m_generatedCommandsSupport;

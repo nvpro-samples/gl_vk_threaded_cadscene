@@ -30,12 +30,13 @@
 #include <assert.h>
 #include <algorithm>
 #include "renderer.hpp"
-#include <main.h>
 #include "resources_gl.hpp"
 
-#include <nv_math/nv_math_glsltypes.h>
+#include <nvmath/nvmath_glsltypes.h>
 
-using namespace nv_math;
+#include <nvgl/contextwindow_gl.hpp>
+
+using namespace nvmath;
 #include "common.h"
 
 namespace csfthreaded
@@ -56,7 +57,7 @@ namespace csfthreaded
     {
       bool isAvailable() const
       {
-        return !!load_GL_NV_command_list(NVPWindow::sysGetProcAddressGL);
+        return !!load_GL_NV_command_list(nvgl::ContextWindowGL::sysGetProcAddress);
       }
       const char* name() const
       {
@@ -83,7 +84,7 @@ namespace csfthreaded
     {
       bool isAvailable() const
       {
-        return !!load_GL_NV_command_list(NVPWindow::sysGetProcAddressGL);
+        return !!load_GL_NV_command_list(nvgl::ContextWindowGL::sysGetProcAddress);
       }
       const char* name() const
       {
@@ -109,7 +110,7 @@ namespace csfthreaded
     {
       bool isAvailable() const
       {
-        return !!load_GL_NV_command_list(NVPWindow::sysGetProcAddressGL);
+        return !!load_GL_NV_command_list(nvgl::ContextWindowGL::sysGetProcAddress);
       }
       const char* name() const
       {
@@ -136,7 +137,7 @@ namespace csfthreaded
 
     void init(const CadScene* NV_RESTRICT scene, Resources* resources, const Renderer::Config& config);
     void deinit();
-    void draw(ShadeType shadetype, Resources*  NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler);
+    void draw(ShadeType shadetype, Resources*  NV_RESTRICT resources, const Resources::Global& global);
     
     Mode    m_mode;
 
@@ -349,10 +350,12 @@ namespace csfthreaded
     }
   }
 
-  void RendererGLCMD::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler)
+  void RendererGLCMD::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global)
   {
     const CadScene* NV_RESTRICT scene = m_scene;
-    const ResourcesGL* NV_RESTRICT res = (ResourcesGL*)resources;
+    ResourcesGL* NV_RESTRICT res = (ResourcesGL*)resources;
+
+    const nvgl::ProfilerGL::Section profile(res->m_profilerGL, "Render");
 
     // generic state setup
     glViewport(0, 0, global.width, global.height);

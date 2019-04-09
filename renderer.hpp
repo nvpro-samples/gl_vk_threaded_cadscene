@@ -37,7 +37,7 @@
 #define GL_UNIFORM_BUFFER_LENGTH_NV                         0x9370
 
 #include "resources.hpp"
-#include <nv_helpers/profiler.hpp>
+#include <nvh/profiler.hpp>
 
 #include "threadpool.hpp"
 
@@ -115,13 +115,13 @@ namespace csfthreaded {
   public:
     virtual void init(const CadScene* NV_RESTRICT scene, Resources* resources, const Config& config) {}
     virtual void deinit() {}
-    virtual void draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global, nv_helpers::Profiler& profiler ) {}
+    virtual void draw(ShadeType shadetype, Resources* NV_RESTRICT resources, const Resources::Global& global ) {}
 
     virtual ~Renderer() {}
     
     void fillDrawItems( std::vector<DrawItem>& drawItems, const Config& config, bool solid, bool wire);
 
-    Config                        m_config;
+    Config                       m_config;
     const CadScene* NV_RESTRICT  m_scene;
 
     
