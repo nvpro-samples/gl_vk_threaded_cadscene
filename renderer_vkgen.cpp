@@ -455,14 +455,14 @@ namespace csfthreaded
       {
 #if UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
         input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NVX;
-        input.bindingUnit = 0;
-        input.dynamicCount = 1;
+        input.bindingUnit = 0; // offset in bytes
+        input.dynamicCount = sizeof(uint32_t); // size in bytes
         input.divisor = 1;
         inputInfos.push_back(input);
 
         input.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NVX;
-        input.bindingUnit = 1;
-        input.dynamicCount = 1;
+        input.bindingUnit = sizeof(uint32_t); // offset in bytes
+        input.dynamicCount = sizeof(uint32_t); // size in bytes
         input.divisor = 1;
         inputInfos.push_back(input);
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC

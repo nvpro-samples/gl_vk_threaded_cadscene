@@ -1,8 +1,8 @@
 # Vulkan & OpenGL Threaded CAD Scene Sample
 
-The "threaded cadscene" sample allows comparing various rendering approaches using core OpenGL, extended OpenGL via bindless graphics and NV_command_list as well as Vulkan.
+The "threaded cadscene" sample allows comparing various rendering approaches using core OpenGL, extended OpenGL via bindless graphics and NV_command_list as well as Vulkan. It does make use of NVIDIA specific extensions to use Vulkan within an OpenGL context and display a Vulkan image.
 
-> **Note** This sample currently makes use of NVIDIA specific extension when it is compiled with OpenGL and Vulkan enabled. You can use the `BUILD_gl_vk_threaded_cadscene_VULKAN_ONLY` option to get it in "pure" Vulkan mode. We recommend this for best performance in Vulkan.
+> **Note** This sample by default makes use of NVIDIA specific extensions to be able to use OpenGL and Vulkan at the same time. However we also provide a cmake build option to remove the OpenGL support and instead use Vulkan's WSI swapbuffers. It is recommanded to use the Vulkan stand-alone mode for Vulkan performance investigation and debugging.
 
 The content being rendered in the sample is a CAD model which is made of many parts that have few triangles. Having such low complexity per draw-call can very often result into being CPU bound. 
 
@@ -167,7 +167,7 @@ Overall Vulkan is a big improvement over unextended OpenGL, especially re-using 
 As this sample only uses two pipeline objects (or state-objects in OpenGL) and the rest of the scene's resources are static as well, Vulkan cannot make use of its greatest strength: generating and validating resources in parallel. Therefore, benchmarks in samples like this are very directed at a certain problem and only demonstrate a snapshot of an APIs capability.
 
 ### Building
-Make sure to have installed the [Vulkan-SDK](http://lunarg.com/vulkan-sdk/) and a [driver that supports Vulkan](https://developer.nvidia.com/vulkan-driver).
+Make sure to have installed the [Vulkan-SDK](http://lunarg.com/vulkan-sdk/). Always use 64-bit build configurations.
 
 Ideally clone this and other interesting [nvpro-samples](https://github.com/nvpro-samples) repositories into a common subdirectory. You will always need [shared_sources](https://github.com/nvpro-samples/shared_sources) and on Windows [shared_external](https://github.com/nvpro-samples/shared_external). The shared directories are searched either as subdirectory of the sample or one directory up.
 
