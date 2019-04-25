@@ -70,10 +70,12 @@
 #ifndef UNIFORMS_PUSHCONSTANTS_INDEX
 #define UNIFORMS_PUSHCONSTANTS_INDEX 5
 #endif
+
+#ifndef __cplusplus
 #ifndef UNIFORMS_TECHNIQUE
 #define UNIFORMS_TECHNIQUE UNIFORMS_MULTISETSDYNAMIC
 #endif
-
+#endif
 //////////////////////////////////////////////////////////////////////////
 
 #ifdef __cplusplus

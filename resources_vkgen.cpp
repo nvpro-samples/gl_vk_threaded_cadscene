@@ -113,7 +113,7 @@ void ResourcesVKGen::initObjectTable()
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
     2
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
-    m_drawing.descriptorSets[DRAW_UBO_MATRIX].size() + m_drawing.descriptorSets[DRAW_UBO_MATERIAL].size()
+    m_drawing.at(DRAW_UBO_MATRIX).getSetsCount() + m_drawing.at(DRAW_UBO_MATERIAL).getSetsCount()
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
     2
 #endif
@@ -188,13 +188,13 @@ void ResourcesVKGen::initObjectTable()
     resEntry                                      = (VkObjectTableEntryNVX*)&descrentry;
 
     resIndex                 = 0;
-    descrentry.descriptorSet = m_drawing.getSets(DRAW_UBO_MATRIX)[0];
+    descrentry.descriptorSet = m_drawing.at(DRAW_UBO_MATRIX).getSet(0);
     result                   = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
     assert(result == VK_SUCCESS);
     m_table.matrixDescriptorSets.push_back(resIndex);
 
     resIndex                 = 1;
-    descrentry.descriptorSet = m_drawing.getSets(DRAW_UBO_MATERIAL)[0];
+    descrentry.descriptorSet = m_drawing.at(DRAW_UBO_MATERIAL).getSet(0);
     result                   = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
     assert(result == VK_SUCCESS);
     m_table.materialDescriptorSets.push_back(resIndex);
@@ -205,9 +205,9 @@ void ResourcesVKGen::initObjectTable()
     descrentry.pipelineLayout = m_drawing.getPipeLayout();
     resEntry = (VkObjectTableEntryNVX*)&descrentry;
 
-    for(size_t i = 0; i < m_drawing.getSetsCount(DRAW_UBO_MATRIX); i++)
+    for(size_t i = 0; i < m_drawing.at(DRAW_UBO_MATRIX).getSetsCount(); i++)
     {
-      descrentry.descriptorSet = m_drawing.getSets(DRAW_UBO_MATRIX)[i];
+      descrentry.descriptorSet = m_drawing.at(DRAW_UBO_MATRIX).getSet(i);
 
       resIndex = i;
       result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
@@ -215,11 +215,11 @@ void ResourcesVKGen::initObjectTable()
       m_table.matrixDescriptorSets.push_back(resIndex);
     }
 
-    for(size_t i = 0; i < m_drawing.getSetsCount(DRAW_UBO_MATERIAL); i++)
+    for(size_t i = 0; i < m_drawing.at(DRAW_UBO_MATERIAL).getSetsCount(); i++)
     {
-      descrentry.descriptorSet = m_drawing.getSets(DRAW_UBO_MATERIAL)[i];
+      descrentry.descriptorSet = m_drawing.at(DRAW_UBO_MATERIAL).getSet(i);
 
-      resIndex = i + m_drawing.descriptorSets[DRAW_UBO_MATRIX].size();
+      resIndex = i + m_drawing.at(DRAW_UBO_MATRIX).getSetsCount();
       result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
       assert(result == VK_SUCCESS);
       m_table.materialDescriptorSets.push_back(resIndex);

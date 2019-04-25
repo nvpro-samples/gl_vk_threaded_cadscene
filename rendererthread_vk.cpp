@@ -247,11 +247,11 @@ private:
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, solid ? solidPipeline : nonSolidPipeline);
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(), DRAW_UBO_SCENE, 1,
-                              res->m_drawing.getSets(DRAW_UBO_SCENE), 0, NULL);
+                              res->m_drawing.at(DRAW_UBO_SCENE).getSets(), 0, NULL);
 #endif
 #if UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW || UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(), DRAW_UBO_SCENE, 1,
-                              res->m_drawing.getSets(0), 0, NULL);
+                              res->m_drawing.getSets(), 0, NULL);
 #endif
       lastSolid = solid;
     }
@@ -293,10 +293,10 @@ private:
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
         uint32_t offset = di.matrixIndex * res->m_alignedMatrixSize;
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(), DRAW_UBO_MATRIX,
-                                1, res->m_drawing.getSets(DRAW_UBO_MATRIX), 1, &offset);
+                                1, res->m_drawing.at(DRAW_UBO_MATRIX).getSets(), 1, &offset);
 #else
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(), DRAW_UBO_MATRIX,
-                                1, res->m_drawing.getSets(DRAW_UBO_MATRIX) + di.matrixIndex, 0, NULL);
+                                1, res->m_drawing.at(DRAW_UBO_MATRIX).getSets() + di.matrixIndex, 0, NULL);
 #endif
         lastMatrix = di.matrixIndex;
       }
@@ -306,10 +306,10 @@ private:
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
         uint32_t offset = di.materialIndex * res->m_alignedMaterialSize;
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(), DRAW_UBO_MATERIAL,
-                                1, res->m_drawing.getSets(DRAW_UBO_MATERIAL), 1, &offset);
+                                1, res->m_drawing.at(DRAW_UBO_MATERIAL).getSets(), 1, &offset);
 #else
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(), DRAW_UBO_MATERIAL,
-                                1, res->m_drawing.getSets(DRAW_UBO_MATERIAL) + di.materialIndex, 0, NULL);
+                                1, res->m_drawing.at(DRAW_UBO_MATERIAL).getSets() + di.materialIndex, 0, NULL);
 #endif
         lastMaterial = di.materialIndex;
       }
@@ -330,7 +330,7 @@ private:
         offsets[DRAW_UBO_MATERIAL - 1] = di.materialIndex * res->m_alignedMaterialSize;
 #endif
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(), 0, 1,
-                                res->m_drawing.getSets(0), sizeof(offsets) / sizeof(offsets[0]), offsets);
+                                res->m_drawing.getSets(), sizeof(offsets) / sizeof(offsets[0]), offsets);
 
         lastMaterial = di.materialIndex;
         lastMatrix   = di.matrixIndex;

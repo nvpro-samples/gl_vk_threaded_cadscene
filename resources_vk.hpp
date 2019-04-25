@@ -178,11 +178,11 @@ public:
 
 
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
-  nvvk::DescriptorSetContainer<DRAW_UBOS_NUM> m_drawing;
+  nvvk::TDescriptorSetContainer<DRAW_UBOS_NUM> m_drawing;
 #else
-  nvvk::DescriptorSetContainer<1> m_drawing;
+  nvvk::DescriptorSetContainer m_drawing;
 #endif
-  nvvk::DescriptorSetContainer<1> m_anim;
+  nvvk::DescriptorSetContainer m_anim;
 
   uint32_t              m_numMatrices;
   std::vector<Geometry> m_geometry;

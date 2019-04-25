@@ -281,7 +281,7 @@ namespace csfthreaded
       #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
         {
           matrixsets.push_back(di.matrixIndex);
-          materialsets.push_back(di.materialIndex + res->m_drawing.descriptorSets[DRAW_UBO_MATRIX].size());
+          materialsets.push_back(di.materialIndex + res->m_drawing.at(DRAW_UBO_MATRIX).getSetsCount());
         }
       #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
         {
@@ -607,10 +607,10 @@ namespace csfthreaded
     }
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
     vkCmdBindDescriptorSets(target, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
-      DRAW_UBO_SCENE, 1, res->m_drawing.getSets(DRAW_UBO_SCENE), 0, NULL);
+      DRAW_UBO_SCENE, 1, res->m_drawing.at(DRAW_UBO_SCENE).getSets(), 0, NULL);
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
     vkCmdBindDescriptorSets(target, VK_PIPELINE_BIND_POINT_GRAPHICS, res->m_drawing.getPipeLayout(),
-      DRAW_UBO_SCENE, 1, res->m_drawing.getSets(0), 0, NULL);
+      DRAW_UBO_SCENE, 1, res->m_drawing.getSets(), 0, NULL);
 #endif
 
 #if USE_SINGLE_GEOMETRY_BUFFERS
