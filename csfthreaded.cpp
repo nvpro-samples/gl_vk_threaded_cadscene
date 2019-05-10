@@ -151,6 +151,9 @@ namespace csfthreaded
     #if !HAS_OPENGL
       setupVulkanContextInfo(m_contextInfo);
     #endif
+    #if defined (NDEBUG)
+      setVsync(false);
+    #endif
     }
 
   public:
@@ -334,10 +337,6 @@ namespace csfthreaded
       glGenVertexArrays(1, &defaultVAO);
       glBindVertexArray(defaultVAO);
     }
-#endif
-
-#if defined (NDEBUG)
-    setVsync(false);
 #endif
 
     bool validated(true);
