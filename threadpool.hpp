@@ -30,10 +30,6 @@
 #define THREADPOOL_H__
 
 #include <vector>
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-
 #include <thread>
 #include <mutex>
 #include <condition_variable>

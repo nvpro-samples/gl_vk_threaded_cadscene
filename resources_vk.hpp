@@ -50,132 +50,137 @@
 
 #define DRAW_UBOS_NUM 3
 
-// cmdbuffers in worker threads are secondary, otherwise primary
-#define USE_THREADED_SECONDARIES 1
-// only use one big buffer for all geometries, otherwise individual
-#define USE_SINGLE_GEOMETRY_BUFFERS 1
 
+#include "cadscene_vk.hpp"
 #include "resources.hpp"
 
-#include <nvh/tnulled.hpp>
-#include <nvvk/barrier_vk.hpp>
-#include <nvvk/contextwindow_vk.hpp>
-#include <nvvk/descriptorsetcontainer_vk.hpp>
-#include <nvvk/deviceutils_vk.hpp>
-#include <nvvk/error_vk.hpp>
-#include <nvvk/makers_vk.hpp>
-#include <nvvk/memorymanagement_vk.hpp>
-#include <nvvk/physical_vk.hpp>
+#include <nvvk/context_vk.hpp>
 #include <nvvk/profiler_vk.hpp>
-#include <nvvk/ringresources_vk.hpp>
 #include <nvvk/shadermodulemanager_vk.hpp>
-#include <nvvk/staging_vk.hpp>
-#include <nvvk/submission_vk.hpp>
 #include <nvvk/swapchain_vk.hpp>
 
-namespace csfthreaded {
-template <typename T>
-using TNulled = nvh::TNulled<T>;
+#include <nvvk/buffers_vk.hpp>
+#include <nvvk/commands_vk.hpp>
+#include <nvvk/descriptorsets_vk.hpp>
+#include <nvvk/error_vk.hpp>
+#include <nvvk/memorymanagement_vk.hpp>
+#include <nvvk/renderpasses_vk.hpp>
 
-class ResourcesVK : public Resources, public nvvk::DeviceUtils
+namespace csfthreaded {
+
+class ResourcesVK : public Resources
 {
 public:
-  struct
+  ResourcesVK() {}
+
+  static ResourcesVK* get()
   {
-    VkRenderPass sceneClear, scenePreserve, sceneUI;
-  } passes;
+    static ResourcesVK res;
 
-  struct
+    return &res;
+  }
+  static bool ResourcesVK::isAvailable();
+
+
+  struct FrameBuffer
   {
-    TNulled<VkFramebuffer> scene, sceneUI;
-  } fbos;
+    int  renderWidth  = 0;
+    int  renderHeight = 0;
+    int  supersample  = 0;
+    bool useResolved  = false;
+    bool vsync        = false;
+    int  msaa         = 0;
 
-  struct
-  {
-    TNulled<VkImage> scene_color, scene_depthstencil, scene_color_resolved;
-  } images;
-
-  struct
-  {
-    VkBuffer scene, anim,
-#if USE_SINGLE_GEOMETRY_BUFFERS
-        vbo, ibo,
-#endif
-        materials, matrices, matricesOrig;
-  } buffers;
-
-  struct
-  {
-    VkImageView scene_color, scene_color_resolved, scene_depthstencil;
-
-    VkDescriptorBufferInfo scene, anim, materials, materialsFull, matrices, matricesFull, matricesFullOrig;
-  } views;
-
-  struct
-  {
-    TNulled<VkDeviceMemory> framebuffer,
-
-        scene, anim, vbo, ibo,
-
-        materials, matrices, matricesOrig;
-  } mem;
-
-  struct
-  {
-    nvvk::ShaderModuleManager::ShaderModuleID vertex_tris, vertex_line, fragment_tris, fragment_line, compute_animation;
-  } moduleids;
-
-  struct
-  {
-    TNulled<VkShaderModule> vertex_tris, vertex_line, fragment_tris, fragment_line, compute_animation;
-  } shaders;
-
-
-  struct
-  {
-    TNulled<VkPipeline> tris, line_tris, line, compute_animation;
-  } pipes;
-
-  struct
-  {
     VkViewport viewport;
+    VkViewport viewportUI;
     VkRect2D   scissor;
-  } states;
+    VkRect2D   scissorUI;
 
-  struct BufferBinding
-  {
-    VkBuffer     buffer;
-    VkDeviceSize offset;
-    VkDeviceSize size;
+    VkRenderPass passClear    = VK_NULL_HANDLE;
+    VkRenderPass passPreserve = VK_NULL_HANDLE;
+    VkRenderPass passUI       = VK_NULL_HANDLE;
+
+    VkFramebuffer fboScene = VK_NULL_HANDLE;
+    VkFramebuffer fboUI    = VK_NULL_HANDLE;
+
+    VkImage imgColor         = VK_NULL_HANDLE;
+    VkImage imgColorResolved = VK_NULL_HANDLE;
+    VkImage imgDepthStencil  = VK_NULL_HANDLE;
+
+    VkImageView viewColor         = VK_NULL_HANDLE;
+    VkImageView viewColorResolved = VK_NULL_HANDLE;
+    VkImageView viewDepthStencil  = VK_NULL_HANDLE;
+
+    nvvk::DeviceMemoryAllocator memAllocator;
   };
 
-  struct Geometry
+  struct Common
   {
-    BufferBinding vbo;
-    BufferBinding ibo;
-    int           cloneIdx;
+    nvvk::AllocationID     viewAID;
+    VkBuffer               viewBuffer;
+    VkDescriptorBufferInfo viewInfo;
+
+    nvvk::AllocationID     animAID;
+    VkBuffer               animBuffer;
+    VkDescriptorBufferInfo animInfo;
   };
+
+  struct ShaderModuleIDs
+  {
+    nvvk::ShaderModuleID vertex_tris;
+    nvvk::ShaderModuleID vertex_line;
+    nvvk::ShaderModuleID fragment_tris;
+    nvvk::ShaderModuleID fragment_line;
+    nvvk::ShaderModuleID compute_animation;
+  };
+
+  struct Shaders
+  {
+    VkShaderModule vertex_tris;
+    VkShaderModule vertex_line;
+    VkShaderModule fragment_tris;
+    VkShaderModule fragment_line;
+    VkShaderModule compute_animation;
+  };
+
+  struct Pipelines
+  {
+    VkPipeline tris              = VK_NULL_HANDLE;
+    VkPipeline line_tris         = VK_NULL_HANDLE;
+    VkPipeline line              = VK_NULL_HANDLE;
+    VkPipeline compute_animation = VK_NULL_HANDLE;
+  };
+
+  bool m_withinFrame = false;
 
   nvvk::ShaderModuleManager m_shaderManager;
+  ShaderModuleIDs           m_moduleids;
+  Shaders                   m_shaders;
+  Pipelines                 m_pipes;
+
+  FrameBuffer m_framebuffer;
+  Common      m_common;
 
 #if HAS_OPENGL
-  nvvk::InstanceDeviceContext m_ctxContent;
-  VkSemaphore                 m_semImageWritten;
-  VkSemaphore                 m_semImageRead;
+  //nvvk::DeviceInstance m_ctxContent;
+  VkSemaphore   m_semImageWritten;
+  VkSemaphore   m_semImageRead;
+  nvvk::Context m_contextInstance;
 #else
-  const nvvk::SwapChain*          m_swapChain;
+  const nvvk::SwapChain*       m_swapChain;
 #endif
-  const nvvk::InstanceDeviceContext* m_ctx;
-  const nvvk::PhysicalInfo*          m_physical;
-  VkQueue                            m_queue;
-  uint32_t                           m_queueFamily;
+  nvvk::Context* m_context;
 
-  nvvk::RingFences  m_ringFences;
-  nvvk::RingCmdPool m_ringCmdPool;
+  VkDevice                     m_device    = VK_NULL_HANDLE;
+  VkPhysicalDevice             m_physical;
+  VkQueue                      m_queue;
+  uint32_t                     m_queueFamily;
 
-  bool             m_submissionWaitForRead;
-  nvvk::BatchSubmission m_submission;
-
+  nvvk::DeviceMemoryAllocator m_memAllocator;
+  nvvk::RingFences            m_ringFences;
+  nvvk::RingCmdPool           m_ringCmdPool;
+  nvvk::BatchSubmission       m_submission;
+  bool                        m_submissionWaitForRead;
 
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
   nvvk::TDescriptorSetContainer<DRAW_UBOS_NUM> m_drawing;
@@ -184,25 +189,26 @@ public:
 #endif
   nvvk::DescriptorSetContainer m_anim;
 
-  uint32_t              m_numMatrices;
-  std::vector<Geometry> m_geometry;
+  uint32_t   m_numMatrices;
+  CadSceneVK m_scene;
 
   nvvk::ProfilerVK m_profilerVK;
 
-  size_t m_pipeIncarnation;
+  size_t m_pipeChangeID;
+  size_t m_fboChangeID;
 
-  size_t m_fboIncarnation;
-  int    m_width;
-  int    m_height;
-  int    m_msaa;
-  bool   m_vsync;
 
-  bool init(ContextWindow* window, nvh::Profiler* profiler);
+#if HAS_OPENGL
+  bool init(nvgl::ContextWindow* window, nvh::Profiler* profiler);
+#else
+  bool                         init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::Profiler* profiler);
+#endif
+
   void deinit();
 
   void initPipes();
   void deinitPipes();
-  bool hasPipes() { return pipes.compute_animation != 0; }
+  bool hasPipes() { return m_pipes.compute_animation != 0; }
 
   bool initPrograms(const std::string& path, const std::string& prepend);
   void reloadPrograms(const std::string& prepend);
@@ -225,38 +231,15 @@ public:
   void animation(const Global& global);
   void animationReset();
 
-  nvmath::mat4f perspectiveProjection(float fovy, float aspect, float nearPlane, float farPlane) const;
+  nvmath::mat4f perspectiveProjection(float fovy, float aspect, float nearPlane, float farPlane) const override;
 
-  ResourcesVK() {}
-
-  static ResourcesVK* get()
-  {
-    static ResourcesVK res;
-
-    return &res;
-  }
-  static bool ResourcesVK::isAvailable();
-
+  //////////////////////////////////////////////////////////////////////////
 
   VkRenderPass createPass(bool clear, int msaa);
   VkRenderPass createPassUI(int msaa);
 
-  void flushStaging(nvvk::FixedSizeStagingBuffer& staging);
-  void fillBuffer(nvvk::FixedSizeStagingBuffer& staging, VkBuffer buffer, size_t offset, size_t size, const void* data);
-  VkBuffer createAndFillBuffer(nvvk::FixedSizeStagingBuffer& staging,
-                               size_t                        size,
-                               const void*                   data,
-                               VkFlags                       usage,
-                               VkDeviceMemory&               bufferMem,
-                               VkFlags                       memProps = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
   VkCommandBuffer createCmdBuffer(VkCommandPool pool, bool singleshot, bool primary, bool secondaryInClear) const;
   VkCommandBuffer createTempCmdBuffer(bool primary = true, bool secondaryInClear = false);
-
-  VkResult allocMemAndBindBuffer(VkBuffer obj, VkDeviceMemory& gpuMem, VkFlags memProps = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-  {
-    return DeviceUtils::allocMemAndBindBuffer(obj, m_physical->memoryProperties, gpuMem, memProps);
-  }
 
   // submit for batched execution
   void submissionEnqueue(VkCommandBuffer cmdbuffer) { m_submission.enqueue(cmdbuffer); }
@@ -268,7 +251,7 @@ public:
   void resetTempResources();
 
   void cmdBeginRenderPass(VkCommandBuffer cmd, bool clear, bool hasSecondary = false) const;
-  void cmdPipelineBarrier(VkCommandBuffer cmd) const;
+  void cmdPipelineBarrier(VkCommandBuffer cmd, bool isOptimal = false) const;
   void cmdDynamicState(VkCommandBuffer cmd) const;
   void cmdImageTransition(VkCommandBuffer    cmd,
                           VkImage            img,

@@ -72,7 +72,7 @@
     layout(set=0, binding=DRAW_UBO_SCENE, std140) uniform sceneBuffer {
       SceneData   scene;
     };
-    layout(set=0, binding=DRAW_UBO_MATRIX, std430) buffer matrixBuffer {
+    layout(set=0, binding=DRAW_UBO_MATRIX, std430) readonly buffer matrixBuffer {
       MatrixData  matrices[];
     };
     
@@ -88,22 +88,40 @@
 #endif
 
 
-in layout(location=VERTEX_POS)      vec3 pos;
-in layout(location=VERTEX_NORMAL)   vec3 normal;
+in layout(location=VERTEX_POS_OCTNORMAL) vec4 inPosNormal;
 
 layout(location=0) out Interpolants {
   vec3 wPos;
   vec3 wNormal;
 } OUT;
 
+
+// oct functions from http://jcgt.org/published/0003/02/01/paper.pdf
+vec2 oct_signNotZero(vec2 v) {
+  return vec2((v.x >= 0.0) ? +1.0 : -1.0, (v.y >= 0.0) ? +1.0 : -1.0);
+}
+vec3 oct_to_float32x3(vec2 e) {
+  vec3 v = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
+  if (v.z < 0) v.xy = (1.0 - abs(v.yx)) * oct_signNotZero(v.xy);
+  return normalize(v);
+}
+vec2 float32x3_to_oct(in vec3 v) {
+  // Project the sphere onto the octahedron, and then onto the xy plane
+  vec2 p = v.xy * (1.0 / (abs(v.x) + abs(v.y) + abs(v.z)));
+  // Reflect the folds of the lower hemisphere over the diagonals
+  return (v.z <= 0.0) ? ((1.0 - abs(p.yx)) * oct_signNotZero(p)) : p;
+}
+
 void main()
 {
+  vec3 inNormal = oct_to_float32x3(unpackSnorm2x16(floatBitsToUint(inPosNormal.w)));
+
 #if USE_INDEXING
-  vec3 wPos     = (matrices[matrixIndex].worldMatrix   * vec4(pos,1)).xyz;
-  vec3 wNormal  = mat3(matrices[matrixIndex].worldMatrixIT) * normal;
+  vec3 wPos     = (matrices[matrixIndex].worldMatrix   * vec4(inPosNormal.xyz,1)).xyz;
+  vec3 wNormal  = mat3(matrices[matrixIndex].worldMatrixIT) * inNormal;
 #else
-  vec3 wPos     = (object.worldMatrix   * vec4(pos,1)).xyz;
-  vec3 wNormal  = mat3(object.worldMatrixIT) * normal;
+  vec3 wPos     = (object.worldMatrix   * vec4(inPosNormal.xyz,1)).xyz;
+  vec3 wNormal  = mat3(object.worldMatrixIT) * inNormal;
 #endif
 
   gl_Position   = scene.viewProjMatrix * vec4(wPos,1);

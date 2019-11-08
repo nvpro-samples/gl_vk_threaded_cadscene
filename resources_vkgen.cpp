@@ -37,15 +37,22 @@ namespace csfthreaded {
 
 bool ResourcesVKGen::init(
 #if HAS_OPENGL
-    nvgl::ContextWindowGL* contextWindow,
+    nvgl::ContextWindow* contextWindow,
 #else
-    nvvk::ContextWindowVK* contextWindow,
+    nvvk::Context*   context,
+    nvvk::SwapChain* swapChain,
 #endif
     nvh::Profiler* profiler)
 {
-  bool valid = ResourcesVK::init(contextWindow, profiler);
+  bool valid = ResourcesVK::init(
+#if HAS_OPENGL
+      contextWindow,
+#else
+      context, swapChain,
+#endif
+      profiler);
 
-  m_generatedCommandsSupport = load_VK_NVX_device_generated_commands(m_device, vkGetDeviceProcAddr) ? true : false;
+  m_generatedCommandsSupport = m_context->hasDeviceExtension(VK_NVX_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME);
   return valid && m_generatedCommandsSupport;
 }
 
@@ -103,13 +110,8 @@ void ResourcesVKGen::initObjectTable()
 
   uint32_t rescounts[] = {
     NUM_TABLE_PIPES,
-#if USE_SINGLE_GEOMETRY_BUFFERS
-    1,
-    1,
-#else
-    m_geometry.size(),
-    m_geometry.size(),
-#endif
+    (uint32_t)m_scene.m_geometry.size(),
+    (uint32_t)m_scene.m_geometry.size(),
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC
     2
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
@@ -134,9 +136,9 @@ void ResourcesVKGen::initObjectTable()
 #else
   createInfo.maxStorageBuffersPerDescriptor = 0;
 #endif
-  createInfo.maxStorageImagesPerDescriptor  = 0;
-  createInfo.maxSampledImagesPerDescriptor  = 0;
-  createInfo.maxPipelineLayouts             = 1;
+  createInfo.maxStorageImagesPerDescriptor = 0;
+  createInfo.maxSampledImagesPerDescriptor = 0;
+  createInfo.maxPipelineLayouts            = 1;
 
   VkResult result;
   result = vkCreateObjectTableNVX(m_device, &createInfo, NULL, &m_table.objectTable);
@@ -151,21 +153,13 @@ void ResourcesVKGen::initObjectTable()
     VkObjectTableIndexBufferEntryNVX iboentry = {VK_OBJECT_ENTRY_TYPE_INDEX_BUFFER_NVX, VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX};
     VkObjectTableVertexBufferEntryNVX vboentry = {VK_OBJECT_ENTRY_TYPE_VERTEX_BUFFER_NVX, VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX};
 
-#if USE_SINGLE_GEOMETRY_BUFFERS
+    for(size_t i = 0; i < m_scene.m_geometry.size(); i++)
     {
-      size_t i           = 0;
-      iboentry.buffer    = buffers.ibo;
-      iboentry.indexType = VK_INDEX_TYPE_UINT32;
-      vboentry.buffer    = buffers.vbo;
-#else
-    for(size_t i = 0; i < m_geometry.size(); i++)
-    {
-      Geometry& geom = m_geometry[i];
+      CadSceneVK::Geometry& geom = m_scene.m_geometry[i];
 
       iboentry.buffer    = geom.ibo.buffer;
       iboentry.indexType = VK_INDEX_TYPE_UINT32;
       vboentry.buffer    = geom.vbo.buffer;
-#endif
 
       resIndex = (uint32_t)i;
 
@@ -202,15 +196,15 @@ void ResourcesVKGen::initObjectTable()
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
   {
     VkObjectTableDescriptorSetEntryNVX descrentry = {VK_OBJECT_ENTRY_TYPE_DESCRIPTOR_SET_NVX, VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX};
-    descrentry.pipelineLayout = m_drawing.getPipeLayout();
-    resEntry = (VkObjectTableEntryNVX*)&descrentry;
+    descrentry.pipelineLayout                     = m_drawing.getPipeLayout();
+    resEntry                                      = (VkObjectTableEntryNVX*)&descrentry;
 
     for(size_t i = 0; i < m_drawing.at(DRAW_UBO_MATRIX).getSetsCount(); i++)
     {
       descrentry.descriptorSet = m_drawing.at(DRAW_UBO_MATRIX).getSet(i);
 
       resIndex = i;
-      result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
+      result   = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
       assert(result == VK_SUCCESS);
       m_table.matrixDescriptorSets.push_back(resIndex);
     }
@@ -220,30 +214,30 @@ void ResourcesVKGen::initObjectTable()
       descrentry.descriptorSet = m_drawing.at(DRAW_UBO_MATERIAL).getSet(i);
 
       resIndex = i + m_drawing.at(DRAW_UBO_MATRIX).getSetsCount();
-      result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
+      result   = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
       assert(result == VK_SUCCESS);
       m_table.materialDescriptorSets.push_back(resIndex);
     }
   }
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
-{
-  VkObjectTablePushConstantEntryNVX pushentry = {VK_OBJECT_ENTRY_TYPE_PUSH_CONSTANT_NVX, VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX};
-  pushentry.pipelineLayout                    = m_drawing.getPipeLayout();
-  resEntry                                    = (VkObjectTableEntryNVX*)&pushentry;
+  {
+    VkObjectTablePushConstantEntryNVX pushentry = {VK_OBJECT_ENTRY_TYPE_PUSH_CONSTANT_NVX, VK_OBJECT_ENTRY_USAGE_GRAPHICS_BIT_NVX};
+    pushentry.pipelineLayout = m_drawing.getPipeLayout();
+    resEntry = (VkObjectTableEntryNVX*)&pushentry;
 
-  uint32_t resIndex;
-  resIndex             = 0;
-  pushentry.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-  result               = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
-  assert(result == VK_SUCCESS);
-  m_table.pushConstants.push_back(resIndex);
+    uint32_t resIndex;
+    resIndex = 0;
+    pushentry.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
+    assert(result == VK_SUCCESS);
+    m_table.pushConstants.push_back(resIndex);
 
-  resIndex             = 1;
-  pushentry.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  result               = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
-  assert(result == VK_SUCCESS);
-  m_table.pushConstants.push_back(resIndex);
-}
+    resIndex = 1;
+    pushentry.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
+    assert(result == VK_SUCCESS);
+    m_table.pushConstants.push_back(resIndex);
+  }
 #endif
 }
 
@@ -260,7 +254,7 @@ void ResourcesVKGen::updateObjectTablePipelines()
   if(!m_table.objectTable)
     return;
 
-  uint32_t resIndex;
+  uint32_t             resIndex;
   VkObjectEntryTypeNVX resType;
 
   if(!m_table.pipelines.empty())
@@ -275,29 +269,29 @@ void ResourcesVKGen::updateObjectTablePipelines()
   }
 
   {
-    VkObjectTablePipelineEntryNVX entry = {(VK_OBJECT_ENTRY_TYPE_PIPELINE_NVX)};
-    VkObjectTableEntryNVX* resEntry = (VkObjectTableEntryNVX*)&entry;
-    resIndex = TABLE_PIPE_LINES;
-    entry.pipeline = pipes.line;
+    VkObjectTablePipelineEntryNVX entry    = {(VK_OBJECT_ENTRY_TYPE_PIPELINE_NVX)};
+    VkObjectTableEntryNVX*        resEntry = (VkObjectTableEntryNVX*)&entry;
+    resIndex                               = TABLE_PIPE_LINES;
+    entry.pipeline                         = m_pipes.line;
     result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
     assert(result == VK_SUCCESS);
     m_table.pipelines.push_back(resIndex);
 
-    resIndex = TABLE_PIPE_LINES_TRIANGLES;
-    entry.pipeline = pipes.line_tris;
-    result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
+    resIndex       = TABLE_PIPE_LINES_TRIANGLES;
+    entry.pipeline = m_pipes.line_tris;
+    result         = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
     assert(result == VK_SUCCESS);
     m_table.pipelines.push_back(resIndex);
 
-    resIndex = TABLE_PIPE_TRIANGLES;
-    entry.pipeline = pipes.tris;
-    result = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
+    resIndex       = TABLE_PIPE_TRIANGLES;
+    entry.pipeline = m_pipes.tris;
+    result         = vkRegisterObjectsNVX(m_device, m_table.objectTable, 1, &resEntry, &resIndex);
     assert(result == VK_SUCCESS);
     m_table.pipelines.push_back(resIndex);
   }
 
-  m_table.resourceIncarnation = m_pipeIncarnation;
+  m_table.resourceChangeID = m_pipeChangeID;
 }
-}
+}  // namespace csfthreaded
 
 #endif

@@ -32,9 +32,6 @@
 #include <assert.h>
 #include <queue>
 
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #include "renderer.hpp"
 #include "resources_vk.hpp"
 #include <nvh/nvprint.hpp>
@@ -43,7 +40,6 @@
 
 #include <nvmath/nvmath_glsltypes.h>
 
-using namespace nvmath;
 #include "common.h"
 
 
@@ -65,7 +61,7 @@ public:
   class TypeCmd : public Renderer::Type
   {
     bool        isAvailable() const { return ResourcesVK::isAvailable(); }
-    const char* name() const { return "Vulkan MT cmd main process"; }
+    const char* name() const { return "Vulkan MT cmd main submit"; }
     Renderer*   create() const
     {
       RendererThreadedVK* renderer = new RendererThreadedVK();
@@ -80,7 +76,7 @@ public:
   class TypeCmdSlave : public Renderer::Type
   {
     bool        isAvailable() const { return ResourcesVK::isAvailable(); }
-    const char* name() const { return "Vulkan MT cmd worker process"; }
+    const char* name() const { return "Vulkan MT cmd worker submit"; }
     Renderer*   create() const
     {
       RendererThreadedVK* renderer = new RendererThreadedVK();
@@ -132,17 +128,20 @@ private:
 
     ShadeCommand* getFrameCommand()
     {
+      ShadeCommand* sc;
       if(m_scIdx + 1 > m_scs.size())
       {
-        ShadeCommand* sc = new ShadeCommand;
+        sc = new ShadeCommand;
         m_scIdx++;
         m_scs.push_back(sc);
-        return sc;
       }
       else
       {
-        return m_scs[m_scIdx++];
+        sc = m_scs[m_scIdx++];
       }
+
+      sc->cmdbuffers.clear();
+      return sc;
     }
   };
 
@@ -151,6 +150,7 @@ private:
   ResourcesVK* NV_RESTRICT m_resources;
   int                      m_numThreads;
 
+  bool      m_batchedSubmit;
   int       m_workingSet;
   ShadeType m_shade;
   int       m_frame;
@@ -171,9 +171,7 @@ private:
   std::mutex              m_drawMutex;
   std::condition_variable m_drawMutexCondition;
 
-#if USE_THREADED_SECONDARIES
   VkCommandBuffer m_primary;
-#endif
 
   static void threadMaster(void* arg)
   {
@@ -217,6 +215,7 @@ private:
   void GenerateCmdBuffers(ShadeCommand& sc, nvvk::RingCmdPool& pool, const DrawItem* NV_RESTRICT drawItems, size_t num, const ResourcesVK* NV_RESTRICT res)
   {
     const CadScene* NV_RESTRICT scene     = m_scene;
+    const CadSceneVK&           sceneVK   = res->m_scene;
     bool                        solidwire = (shadetype == SHADE_SOLIDWIRE);
 
     int  lastMaterial = -1;
@@ -224,22 +223,25 @@ private:
     int  lastMatrix   = -1;
     bool lastSolid    = true;
 
-    sc.cmdbuffers.clear();
-
     // TODO could recycle pool's allocated commandbuffers and not free them
-#if USE_THREADED_SECONDARIES
-    VkCommandBuffer cmd = pool.createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
-    res->cmdBegin(cmd, true, false, true);
-#else
-    VkCommandBuffer cmd = pool.createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    res->cmdBegin(cmd, true, true, false);
-    res->cmdPipelineBarrier(cmd);
-    res->cmdBeginRenderPass(cmd, false);
-#endif
+    VkCommandBuffer cmd;
+
+    if(m_mode == MODE_CMD_MAINSUBMIT)
+    {
+      cmd = pool.createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
+      res->cmdBegin(cmd, true, false, true);
+    }
+    else
+    {
+      cmd = pool.createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+      res->cmdBegin(cmd, true, true, false);
+      //res->cmdPipelineBarrier(cmd, true);
+      res->cmdBeginRenderPass(cmd, false);
+    }
     res->cmdDynamicState(cmd);
 
-    VkPipeline solidPipeline    = solidwire ? res->pipes.line_tris : res->pipes.tris;
-    VkPipeline nonSolidPipeline = res->pipes.line;
+    VkPipeline solidPipeline    = solidwire ? res->m_pipes.line_tris : res->m_pipes.tris;
+    VkPipeline nonSolidPipeline = res->m_pipes.line;
 
     if(num)
     {
@@ -278,10 +280,10 @@ private:
 
       if(lastGeometry != di.geometryIndex)
       {
-        const ResourcesVK::Geometry& glgeo = res->m_geometry[di.geometryIndex];
+        const CadSceneVK::Geometry& vkgeo = sceneVK.m_geometry[di.geometryIndex];
 
-        vkCmdBindVertexBuffers(cmd, 0, 1, &glgeo.vbo.buffer, &glgeo.vbo.offset);
-        vkCmdBindIndexBuffer(cmd, glgeo.ibo.buffer, glgeo.ibo.offset, VK_INDEX_TYPE_UINT32);
+        vkCmdBindVertexBuffers(cmd, 0, 1, &vkgeo.vbo.buffer, &vkgeo.vbo.offset);
+        vkCmdBindIndexBuffer(cmd, vkgeo.ibo.buffer, vkgeo.ibo.offset, VK_INDEX_TYPE_UINT32);
 
         lastGeometry = di.geometryIndex;
       }
@@ -375,14 +377,12 @@ private:
       vkCmdDrawIndexed(cmd, di.range.count, 1, (uint32_t)(di.range.offset / sizeof(uint32_t)), 0, 0);
     }
 
-    if(cmd)
+    if(m_mode == MODE_CMD_WORKERSUBMIT)
     {
-#if !USE_THREADED_SECONDARIES
       vkCmdEndRenderPass(cmd);
-#endif
-      vkEndCommandBuffer(cmd);
-      sc.cmdbuffers.push_back(cmd);
     }
+    vkEndCommandBuffer(cmd);
+    sc.cmdbuffers.push_back(cmd);
   }
 
   void GenerateCmdBuffers(ShadeCommand&      sc,
@@ -453,7 +453,7 @@ void RendererThreadedVK::init(const CadScene* NV_RESTRICT scene, Resources* reso
     job.m_hasWork  = -1;
     job.m_frame    = 0;
 
-    job.m_pool.init(res->m_device, res->m_queueFamily);
+    job.m_pool.init(res->m_device, res->m_context->m_queueGCT);
 
     s_threadpool.activateJob(i, threadMaster, &m_jobs[i]);
   }
@@ -514,17 +514,16 @@ void RendererThreadedVK::submitShadeCommand_ts(ShadeCommand* sc)
 {
   {
     std::unique_lock<std::mutex> lock(m_drawMutex);
-#if USE_THREADED_SECONDARIES
-    vkCmdExecuteCommands(m_primary, (uint32_t)sc->cmdbuffers.size(), sc->cmdbuffers.data());
-#else
-    m_resources->submissionEnqueue(sc->cmdbuffers.size(), sc->cmdbuffers.data());
-#endif
+    NV_BARRIER();
+    VkSubmitInfo submitInfo       = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submitInfo.commandBufferCount = (uint32_t)sc->cmdbuffers.size();
+    submitInfo.pCommandBuffers    = sc->cmdbuffers.data();
+    vkQueueSubmit(m_resources->m_submission.getQueue(), 1, &submitInfo, VK_NULL_HANDLE);
     NV_BARRIER();
   }
 
   sc->cmdbuffers.clear();
 }
-
 
 unsigned int RendererThreadedVK::RunThreadFrame(ShadeType shadetype, ThreadJob& job)
 {
@@ -542,10 +541,15 @@ unsigned int RendererThreadedVK::RunThreadFrame(ShadeType shadetype, ThreadJob& 
   job.resetFrame();
   job.m_pool.setCycle(subframe);
 
-  while(getWork_ts(begin, num))
+  if(m_batchedSubmit)
   {
+    // batched helps performance when workersubmit is chosen, as we make less vkQueueSubmits
     ShadeCommand* sc = job.getFrameCommand();
-    GenerateCmdBuffers(*sc, shadetype, job.m_pool, &m_drawItems[begin], num, m_resources);
+    while(getWork_ts(begin, num))
+    {
+      GenerateCmdBuffers(*sc, shadetype, job.m_pool, &m_drawItems[begin], num, m_resources);
+      tnum += num;
+    }
     if(!sc->cmdbuffers.empty())
     {
       if(m_mode == MODE_CMD_MAINSUBMIT)
@@ -558,7 +562,28 @@ unsigned int RendererThreadedVK::RunThreadFrame(ShadeType shadetype, ThreadJob& 
       }
       dispatches += 1;
     }
-    tnum += num;
+  }
+  else
+  {
+    while(getWork_ts(begin, num))
+    {
+      ShadeCommand* sc = job.getFrameCommand();
+      GenerateCmdBuffers(*sc, shadetype, job.m_pool, &m_drawItems[begin], num, m_resources);
+
+      if(!sc->cmdbuffers.empty())
+      {
+        if(m_mode == MODE_CMD_MAINSUBMIT)
+        {
+          enqueueShadeCommand_ts(sc);
+        }
+        else if(m_mode == MODE_CMD_WORKERSUBMIT)
+        {
+          submitShadeCommand_ts(sc);
+        }
+        dispatches += 1;
+      }
+      tnum += num;
+    }
   }
 
   // NULL signals we are done
@@ -577,14 +602,14 @@ void RendererThreadedVK::RunThread(int tid)
   int    timerFrames = 0;
   size_t dispatches  = 0;
 
-  double timePrint = NVPWindow::sysGetTime();
+  double timePrint = NVPSystem::getTime();
 
   while(!m_stopThreads)
   {
     //NV_BARRIER();
 
-    double beginFrame = NVPWindow::sysGetTime();
-    timeFrame -= NVPWindow::sysGetTime();
+    double beginFrame = NVPSystem::getTime();
+    timeFrame -= NVPSystem::getTime();
     {
       std::unique_lock<std::mutex> lock(job.m_hasWorkMutex);
       while(job.m_hasWork != job.m_frame)
@@ -600,16 +625,16 @@ void RendererThreadedVK::RunThread(int tid)
       break;
     }
 
-    double beginWork = NVPWindow::sysGetTime();
-    timeWork -= NVPWindow::sysGetTime();
+    double beginWork = NVPSystem::getTime();
+    timeWork -= NVPSystem::getTime();
 
     dispatches += RunThreadFrame(shadetype, job);
 
     job.m_frame++;
 
-    timeWork += NVPWindow::sysGetTime();
+    timeWork += NVPSystem::getTime();
 
-    double currentTime = NVPWindow::sysGetTime();
+    double currentTime = NVPSystem::getTime();
     timeFrame += currentTime;
 
     timerFrames++;
@@ -624,10 +649,10 @@ void RendererThreadedVK::RunThread(int tid)
 
       timePrint = currentTime;
 
-      uint32_t avgdispatch = uint32_t(double(dispatches) / double(timerFrames));
+      float avgdispatch = float(double(dispatches) / double(timerFrames));
 
 #if PRINT_TIMER_STATS
-      LOGI("thread %d: work %6d [us] dispatches %5d\n", tid, uint32_t(timeWork), uint32_t(avgdispatch));
+      LOGI("thread %d: work %6d [us] dispatches %5.1f\n", tid, uint32_t(timeWork), avgdispatch);
 #endif
       timeFrame = 0;
       timeWork  = 0;
@@ -652,32 +677,33 @@ void RendererThreadedVK::draw(ShadeType shadetype, Resources* NV_RESTRICT resour
   nvh::Profiler::SectionID sec;
 
   // generic state setup
+
+  VkCommandBuffer primary = res->createTempCmdBuffer();
   {
-    VkCommandBuffer cmd = res->createTempCmdBuffer();
+    sec = res->m_profilerVK.beginSection("Render", primary);
 
-    sec = res->m_profilerVK.beginSection("Render", cmd);
+    vkCmdUpdateBuffer(primary, res->m_common.viewBuffer, 0, sizeof(SceneData), (const uint32_t*)&global.sceneUbo);
 
-    vkCmdUpdateBuffer(cmd, res->buffers.scene, 0, sizeof(SceneData), (const uint32_t*)&global.sceneUbo);
+    res->cmdPipelineBarrier(primary);
+    res->cmdBeginRenderPass(primary, true, m_mode == MODE_CMD_MAINSUBMIT ? true : false);
 
-    res->cmdPipelineBarrier(cmd);
-    res->cmdBeginRenderPass(cmd, true, USE_THREADED_SECONDARIES ? true : false);
+    if(m_mode == MODE_CMD_WORKERSUBMIT)
+    {
+      vkCmdEndRenderPass(primary);
+      vkEndCommandBuffer(primary);
 
-#if USE_THREADED_SECONDARIES
-    m_primary = cmd;
-#else
-    vkCmdEndRenderPass(cmd);
-    vkEndCommandBuffer(cmd);
-
-    res->submissionEnqueue(cmd);
-#endif
+      res->submissionEnqueue(primary);
+      res->submissionExecute(nullptr, true);
+    }
   }
 
-  m_workingSet  = global.workingSet;
-  m_shade       = shadetype;
-  m_numCurItems = 0;
-  m_numEnqueues = 0;
+  m_batchedSubmit = global.batchedSubmit;
+  m_workingSet    = global.workingSet;
+  m_shade         = shadetype;
+  m_numCurItems   = 0;
+  m_numEnqueues   = 0;
 
-  // generate & cmdbuffers in parallel
+  // generate cmdbuffers in parallel
 
   NV_BARRIER();
 
@@ -691,7 +717,7 @@ void RendererThreadedVK::draw(ShadeType shadetype, Resources* NV_RESTRICT resour
     m_jobs[i].m_hasWorkCond.notify_one();
   }
 
-  // dispatch drawing here
+  // enqueue drawing here
   {
     int numTerminated = 0;
     while(true)
@@ -719,11 +745,11 @@ void RendererThreadedVK::draw(ShadeType shadetype, Resources* NV_RESTRICT resour
         if(sc)
         {
           m_numEnqueues++;
-#if USE_THREADED_SECONDARIES
-          vkCmdExecuteCommands(m_primary, (uint32_t)sc->cmdbuffers.size(), &sc->cmdbuffers[0]);
-#else
+          if(m_mode == MODE_CMD_MAINSUBMIT)
+          {
+            vkCmdExecuteCommands(primary, (uint32_t)sc->cmdbuffers.size(), &sc->cmdbuffers[0]);
+          }
           res->submissionEnqueue(sc->cmdbuffers.size(), sc->cmdbuffers.data());
-#endif
           sc->cmdbuffers.clear();
         }
         else
@@ -742,23 +768,22 @@ void RendererThreadedVK::draw(ShadeType shadetype, Resources* NV_RESTRICT resour
 
   NV_BARRIER();
 
-#if USE_THREADED_SECONDARIES
+  if(m_mode == MODE_CMD_MAINSUBMIT)
   {
-    res->m_profilerVK.endSection(sec, m_primary);
+    vkCmdEndRenderPass(primary);
+    res->m_profilerVK.endSection(sec, primary);
+    vkEndCommandBuffer(primary);
 
-    vkCmdEndRenderPass(m_primary);
-    vkEndCommandBuffer(m_primary);
-
-    res->submissionEnqueue(m_primary);
+    res->submissionEnqueue(primary);
   }
-#else
+  else
   {
+    // only needed for profiling
     VkCommandBuffer cmd = res->createTempCmdBuffer();
     res->m_profilerVK.endSection(sec, cmd);
     vkEndCommandBuffer(cmd);
     res->submissionEnqueue(cmd);
   }
-#endif
 
   m_frame++;
 }

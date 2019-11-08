@@ -212,7 +212,7 @@ void ThreadPool::threadProcess( ThreadEntry& entry )
 #if _WIN32
   // assume hyperthreading, move to n physical cores
   unsigned int cpuCore = entry.m_id*2 + 1;
-  SetThreadAffinityMask(GetCurrentThread(), 1 << cpuCore);
+  SetThreadAffinityMask(GetCurrentThread(), uint64_t(1) << cpuCore);
 #endif
 
   while (true)

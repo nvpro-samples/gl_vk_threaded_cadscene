@@ -27,112 +27,124 @@
 
 #pragma once
 
-#include <platform.h>
 #include "cadscene.hpp"
 #include <nvgl/glsltypes_gl.hpp>
+#include <nvh/nvprint.hpp>
 #include <nvh/profiler.hpp>
+#include <platform.h>
 #if HAS_OPENGL
 #include <nvgl/contextwindow_gl.hpp>
-typedef nvgl::ContextWindowGL ContextWindow;
 #else
-#include <nvvk/contextwindow_vk.hpp>
-typedef nvvk::ContextWindowVK ContextWindow;
-#endif   
+#include <nvvk/context_vk.hpp>
+#include <nvvk/swapchain_vk.hpp>
+#endif
+
 
 #include <algorithm>
 
 struct ImDrawData;
 
-using namespace nvmath;
 #include "common.h"
 
-
 namespace csfthreaded {
-  
-  enum ShadeType {
-    SHADE_SOLID,
-    SHADE_SOLIDWIRE,
-    NUM_SHADES,
-  };
 
-  inline size_t alignedSize(size_t sz, size_t align){
-    return ((sz + align-1)/align)*align;
+enum ShadeType
+{
+  SHADE_SOLID,
+  SHADE_SOLIDWIRE,
+  NUM_SHADES,
+};
+
+inline size_t alignedSize(size_t sz, size_t align)
+{
+  return ((sz + align - 1) / align) * align;
+}
+
+struct PointerStream
+{
+  unsigned char* NV_RESTRICT dataptr;
+  size_t                     used;
+  size_t                     allocated;
+
+  void init(void* data, size_t datasize)
+  {
+    dataptr   = (unsigned char* NV_RESTRICT)data;
+    allocated = datasize;
+    used      = 0;
   }
 
-  struct PointerStream {
-    unsigned char*  NV_RESTRICT  dataptr;
-    size_t                        used;
-    size_t                        allocated;
+  void clear() { used = 0; }
 
-    void init(void* data, size_t datasize)
-    {
-      dataptr = (unsigned char*  NV_RESTRICT)data;
-      allocated = datasize;
-      used = 0;
-    }
+  size_t size() { return used; }
+};
 
-    void clear() {
-      used = 0;
-    }
+class Resources
+{
+public:
+  static uint32_t s_vkDevice;
+  static uint32_t s_glDevice;
 
-    size_t size() {
-      return used;
-    }
 
+  struct Global
+  {
+    SceneData         sceneUbo;
+    AnimationData     animUbo;
+    int               winWidth;
+    int               winHeight;
+    int               workingSet;
+    bool              batchedSubmit;
+    const ImDrawData* imguiDrawData;
   };
 
-  class Resources {
-  public:
-    static uint32_t s_vkDevice;
-    static uint32_t s_glDevice;
+  uint32_t m_numMatrices;
 
+  uint32_t m_frame;
 
-    struct Global {
-      SceneData             sceneUbo;
-      AnimationData         animUbo;
-      int                   width;
-      int                   height;
-      int                   workingSet;
-      const ImDrawData* imguiDrawData;
-    };
-    
-    uint32_t    m_numMatrices;
+  uint32_t m_alignedMatrixSize;
+  uint32_t m_alignedMaterialSize;
 
-    uint32_t    m_frame;
+  Resources()
+      : m_frame(0)
+  {
+  }
 
-    uint32_t    m_alignedMatrixSize;
-    uint32_t    m_alignedMaterialSize;
+  virtual void synchronize() {}
 
-    Resources() : m_frame(0)
-    { }
-    
-    virtual void synchronize() {}
+  // Can't virtualize it anymore :-(
+#if HAS_OPENGL
+  virtual bool init(nvgl::ContextWindow* window, nvh::Profiler* profiler) { return false; }
+#else
+  virtual bool init(nvvk::Context* deviceInstance, nvvk::SwapChain* swapChain, nvh::Profiler* profiler)
+  {
+    return false;
+  }
+#endif
+  virtual void deinit() {}
 
-    virtual bool init(ContextWindow* window, nvh::Profiler* profiler) { return false; }
-    virtual void deinit() {}
-    
-    virtual bool initPrograms(const std::string& path, const std::string& prepend) { return true;}
-    virtual void reloadPrograms(const std::string& prepend) {}
+  virtual bool initPrograms(const std::string& path, const std::string& prepend) { return true; }
+  virtual void reloadPrograms(const std::string& prepend) {}
 
-    virtual bool initFramebuffer(int width, int height, int msaa, bool vsync) { return true;}
+  virtual bool initFramebuffer(int width, int height, int msaa, bool vsync) { return true; }
 
-    virtual bool initScene(const CadScene&) { return true; }
-    virtual void deinitScene() {}
+  virtual bool initScene(const CadScene&) { return true; }
+  virtual void deinitScene() {}
 
-    virtual void animation(const Global& global) {}
-    virtual void animationReset() {}
+  virtual void animation(const Global& global) {}
+  virtual void animationReset() {}
 
-    virtual void beginFrame() {}
-    virtual void blitFrame(const Global& global) {}
-    virtual void endFrame() {}
+  virtual void beginFrame() {}
+  virtual void blitFrame(const Global& global) {}
+  virtual void endFrame() {}
 
-    virtual nvmath::mat4f perspectiveProjection( float fovy, float aspect, float nearPlane, float farPlane) const {
-      return nvmath::perspective(fovy, aspect, nearPlane, farPlane);
-    }
+  virtual nvmath::mat4f perspectiveProjection(float fovy, float aspect, float nearPlane, float farPlane) const
+  {
+    return nvmath::perspective(fovy, aspect, nearPlane, farPlane);
+  }
 
-    inline void initAlignedSizes(unsigned int alignment){
-      m_alignedMatrixSize   = (uint32_t)(alignedSize(sizeof(CadScene::MatrixNode), alignment));
-      m_alignedMaterialSize = (uint32_t)(alignedSize(sizeof(CadScene::Material), alignment));
-    }
-  };
-}
+  inline void initAlignedSizes(unsigned int alignment)
+  {
+    m_alignedMatrixSize   = (uint32_t)(alignedSize(sizeof(CadScene::MatrixNode), alignment));
+    m_alignedMaterialSize = (uint32_t)(alignedSize(sizeof(CadScene::Material), alignment));
+  }
+};
+}  // namespace csfthreaded

@@ -36,11 +36,10 @@
 #endif
 
 extern bool vulkanInitLibrary();
-using namespace nvgl;
 
 namespace csfthreaded {
 
-extern void setupVulkanContextInfo(nvvk::ContextInfoVK& info);
+extern void setupVulkanContextInfo(nvvk::ContextCreateInfo& info);
 
 bool csfthreaded::ResourcesVK::isAvailable()
 {
@@ -96,6 +95,8 @@ void ResourcesVK::submissionExecute(VkFence fence, bool useImageReadWait, bool u
 
 void ResourcesVK::beginFrame()
 {
+  assert(!m_withinFrame);
+  m_withinFrame           = true;
   m_submissionWaitForRead = true;
   m_ringFences.wait();
   m_ringCmdPool.setCycle(m_ringFences.getCycleIndex());
@@ -104,13 +105,17 @@ void ResourcesVK::beginFrame()
 void ResourcesVK::endFrame()
 {
   submissionExecute(m_ringFences.advanceCycle(), true, true);
+  assert(m_withinFrame);
+  m_withinFrame = false;
 #if HAS_OPENGL
   {
     // blit to gl backbuffer
     glDisable(GL_DEPTH_TEST);
+    glViewport(0, 0, m_framebuffer.renderWidth / m_framebuffer.supersample, m_framebuffer.renderHeight / m_framebuffer.supersample);
     glWaitVkSemaphoreNV((GLuint64)m_semImageWritten);
-    glDrawVkImageNV((GLuint64)(VkImage)(m_msaa ? images.scene_color_resolved : images.scene_color), 0, 0, 0, m_width,
-                    m_height, 0, 0, 1, 1, 0);
+    glDrawVkImageNV((GLuint64)(VkImage)(m_framebuffer.useResolved ? m_framebuffer.imgColorResolved : m_framebuffer.imgColor),
+                    0, 0, 0, m_framebuffer.renderWidth / m_framebuffer.supersample,
+                    m_framebuffer.renderHeight / m_framebuffer.supersample, 0, 0, 1, 1, 0);
     glEnable(GL_DEPTH_TEST);
     glSignalVkSemaphoreNV((GLuint64)m_semImageRead);
   }
@@ -123,44 +128,72 @@ void ResourcesVK::blitFrame(const Global& global)
 
   nvh::Profiler::SectionID sec = m_profilerVK.beginSection("BltUI", cmd);
 
-  VkImage imageBlitRead = images.scene_color;
+  VkImage imageBlitRead = m_framebuffer.imgColor;
 
-  if(m_msaa)
+  if(m_framebuffer.useResolved)
   {
-    cmdImageTransition(cmd, images.scene_color, VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+    cmdImageTransition(cmd, m_framebuffer.imgColor, VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                        VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-    VkImageResolve region            = {0};
-    region.extent.width              = m_width;
-    region.extent.height             = m_height;
-    region.extent.depth              = 1;
-    region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.dstSubresource.layerCount = 1;
-    region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.srcSubresource.layerCount = 1;
+    if(m_framebuffer.msaa)
+    {
+      VkImageResolve region            = {0};
+      region.extent.width              = global.winWidth;
+      region.extent.height             = global.winHeight;
+      region.extent.depth              = 1;
+      region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      region.dstSubresource.layerCount = 1;
+      region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      region.srcSubresource.layerCount = 1;
 
-    imageBlitRead = images.scene_color_resolved;
+      imageBlitRead = m_framebuffer.imgColorResolved;
 
-    vkCmdResolveImage(cmd, images.scene_color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, imageBlitRead,
-                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+      vkCmdResolveImage(cmd, m_framebuffer.imgColor, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, imageBlitRead,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    }
+    else
+    {
+      // downsample to resolved
+      VkImageBlit region               = {0};
+      region.dstOffsets[1].x           = global.winWidth;
+      region.dstOffsets[1].y           = global.winHeight;
+      region.dstOffsets[1].z           = 1;
+      region.srcOffsets[1].x           = m_framebuffer.renderWidth;
+      region.srcOffsets[1].y           = m_framebuffer.renderHeight;
+      region.srcOffsets[1].z           = 1;
+      region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      region.dstSubresource.layerCount = 1;
+      region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      region.srcSubresource.layerCount = 1;
+
+      imageBlitRead = m_framebuffer.imgColorResolved;
+
+      vkCmdBlitImage(cmd, m_framebuffer.imgColor, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, imageBlitRead,
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
+    }
   }
 
+  // It would be better to render the ui ontop of backbuffer
+  // instead of using the "resolved" image here, as it would avoid an additional
+  // blit. However, for the simplicity to pass a final image in the OpenGL mode
+  // we avoid rendering to backbuffer directly.
 
   if(global.imguiDrawData)
   {
     VkRenderPassBeginInfo renderPassBeginInfo    = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    renderPassBeginInfo.renderPass               = passes.sceneUI;
-    renderPassBeginInfo.framebuffer              = fbos.sceneUI;
+    renderPassBeginInfo.renderPass               = m_framebuffer.passUI;
+    renderPassBeginInfo.framebuffer              = m_framebuffer.fboUI;
     renderPassBeginInfo.renderArea.offset.x      = 0;
     renderPassBeginInfo.renderArea.offset.y      = 0;
-    renderPassBeginInfo.renderArea.extent.width  = m_width;
-    renderPassBeginInfo.renderArea.extent.height = m_height;
+    renderPassBeginInfo.renderArea.extent.width  = global.winWidth;
+    renderPassBeginInfo.renderArea.extent.height = global.winHeight;
     renderPassBeginInfo.clearValueCount          = 0;
     renderPassBeginInfo.pClearValues             = nullptr;
 
     vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    cmdDynamicState(cmd);
+    vkCmdSetViewport(cmd, 0, 1, &m_framebuffer.viewportUI);
+    vkCmdSetScissor(cmd, 0, 1, &m_framebuffer.scissorUI);
 
     ImGui::RenderDrawDataVK(cmd, global.imguiDrawData);
 
@@ -170,14 +203,14 @@ void ResourcesVK::blitFrame(const Global& global)
   }
   else
   {
-    if(m_msaa)
+    if(m_framebuffer.useResolved)
     {
-      cmdImageTransition(cmd, images.scene_color_resolved, VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+      cmdImageTransition(cmd, m_framebuffer.imgColorResolved, VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
                          VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     }
     else
     {
-      cmdImageTransition(cmd, images.scene_color, VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+      cmdImageTransition(cmd, m_framebuffer.imgColor, VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                          VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     }
   }
@@ -187,11 +220,11 @@ void ResourcesVK::blitFrame(const Global& global)
   {
     // blit to vk backbuffer
     VkImageBlit region               = {0};
-    region.dstOffsets[1].x           = m_width;
-    region.dstOffsets[1].y           = m_height;
+    region.dstOffsets[1].x           = global.winWidth;
+    region.dstOffsets[1].y           = global.winHeight;
     region.dstOffsets[1].z           = 1;
-    region.srcOffsets[1].x           = m_width;
-    region.srcOffsets[1].y           = m_height;
+    region.srcOffsets[1].x           = global.winWidth;
+    region.srcOffsets[1].y           = global.winHeight;
     region.srcOffsets[1].z           = 1;
     region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.dstSubresource.layerCount = 1;
@@ -209,9 +242,9 @@ void ResourcesVK::blitFrame(const Global& global)
   }
 #endif
 
-  if(m_msaa)
+  if(m_framebuffer.useResolved)
   {
-    cmdImageTransition(cmd, images.scene_color_resolved, VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+    cmdImageTransition(cmd, m_framebuffer.imgColorResolved, VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_TRANSFER_READ_BIT,
                        VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   }
 
@@ -221,34 +254,36 @@ void ResourcesVK::blitFrame(const Global& global)
   submissionEnqueue(cmd);
 }
 
-bool ResourcesVK::init(ContextWindow* contextWindow, nvh::Profiler* profiler)
+
+#if HAS_OPENGL
+bool ResourcesVK::init(nvgl::ContextWindow* contextWindow, nvh::Profiler* profiler)
+#else
+bool ResourcesVK::init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::Profiler* profiler)
+#endif
 {
-  m_msaa            = 0;
-  m_fboIncarnation  = 0;
-  m_pipeIncarnation = 0;
+  m_fboChangeID  = 0;
+  m_pipeChangeID = 0;
 
 #if HAS_OPENGL
   {
-    nvvk::ContextInfoVK info;
-    info.device = Resources::s_vkDevice;
+    nvvk::ContextCreateInfo info;
+    info.compatibleDeviceIndex = Resources::s_vkDevice;
     setupVulkanContextInfo(info);
-
-    if(!m_ctxContent.initContext(info))
+    m_context = &m_contextInstance;
+    if(!m_context->init(info))
     {
       LOGI("vulkan device create failed (use debug build for more information)\n");
       exit(-1);
       return false;
     }
-    m_ctx         = &m_ctxContent;
-    m_queueFamily = m_ctx->m_physicalInfo.getQueueFamily();
-    vkGetDeviceQueue(m_ctx->m_device, m_queueFamily, 0, &m_queue);
+    //m_ctx         = &m_ctxContent;
   }
 
   {
     // OpenGL drawing
     VkSemaphoreCreateInfo semCreateInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    vkCreateSemaphore(m_ctx->m_device, &semCreateInfo, m_ctx->m_allocator, &m_semImageRead);
-    vkCreateSemaphore(m_ctx->m_device, &semCreateInfo, m_ctx->m_allocator, &m_semImageWritten);
+    vkCreateSemaphore(m_context->m_device, &semCreateInfo, nullptr, &m_semImageRead);
+    vkCreateSemaphore(m_context->m_device, &semCreateInfo, nullptr, &m_semImageWritten);
 
     // fire read to ensure queuesubmit never waits
     glSignalVkSemaphoreNV((GLuint64)m_semImageRead);
@@ -256,43 +291,55 @@ bool ResourcesVK::init(ContextWindow* contextWindow, nvh::Profiler* profiler)
   }
 #else
   {
-    m_ctx = &contextWindow->m_context;
-    m_queue = contextWindow->m_presentQueue;
-    m_queueFamily = contextWindow->m_presentQueueFamily;
-    m_swapChain = &contextWindow->m_swapChain;
+    m_context = context;
+    m_swapChain = swapChain;
   }
 
 #endif
-  m_physical  = &m_ctx->m_physicalInfo;
-  m_device    = m_ctx->m_device;
-  m_allocator = m_ctx->m_allocator;
+  m_device      = m_context->m_device;
+  m_physical    = m_context->m_physicalDevice;
+  m_queue       = m_context->m_queueGCT.queue;
+  m_queueFamily = m_context->m_queueGCT.familyIndex;
 
-  initAlignedSizes((uint32_t)m_physical->properties.limits.minUniformBufferOffsetAlignment);
+  initAlignedSizes((uint32_t)m_context->m_physicalInfo.properties.limits.minUniformBufferOffsetAlignment);
 
   // profiler
   m_profilerVK = nvvk::ProfilerVK(profiler);
-  m_profilerVK.init(m_device, m_physical->physicalDevice, m_allocator);
+  m_profilerVK.init(m_device, m_physical);
 
   // submission queue
   m_submission.init(m_queue);
 
   // fences
-  m_ringFences.init(m_device, m_allocator);
+  m_ringFences.init(m_device);
 
   // temp cmd pool
-  m_ringCmdPool.init(m_device, m_queueFamily, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, m_allocator);
+  m_ringCmdPool.init(m_device, m_queueFamily, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT);
 
   // Create the render passes
   {
-    passes.sceneClear    = createPass(true, m_msaa);
-    passes.scenePreserve = createPass(false, m_msaa);
-    passes.sceneUI       = createPassUI(m_msaa);
+    m_framebuffer.passClear    = createPass(true, m_framebuffer.msaa);
+    m_framebuffer.passPreserve = createPass(false, m_framebuffer.msaa);
+    m_framebuffer.passUI       = createPassUI(m_framebuffer.msaa);
+  }
+
+  // device mem allocator
+  m_memAllocator.init(m_device, m_physical);
+
+  {
+    // common
+    VkBufferUsageFlags usageFlags = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+
+    m_common.viewBuffer = m_memAllocator.createBuffer(sizeof(SceneData), usageFlags, m_common.viewAID);
+    m_common.viewInfo   = {m_common.viewBuffer, 0, sizeof(SceneData)};
+    m_common.animBuffer = m_memAllocator.createBuffer(sizeof(AnimationData), usageFlags, m_common.animAID);
+    m_common.animInfo   = {m_common.animBuffer, 0, sizeof(AnimationData)};
   }
 
   // animation
   {
     // UBO SCENE
-    m_anim.init(m_device, m_allocator);
+    m_anim.init(m_device);
     m_anim.addBinding(ANIM_UBO, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     m_anim.addBinding(ANIM_SSBO_MATRIXOUT, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     m_anim.addBinding(ANIM_SSBO_MATRIXORIG, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -302,7 +349,7 @@ bool ResourcesVK::init(ContextWindow* contextWindow, nvh::Profiler* profiler)
   }
 
   {
-    m_drawing.init(m_device, m_allocator);
+    m_drawing.init(m_device);
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
@@ -336,11 +383,15 @@ bool ResourcesVK::init(ContextWindow* contextWindow, nvh::Profiler* profiler)
 #if UNIFORMS_TECHNIQUE == UNIFORMS_ALLDYNAMIC
     // "worst" case, we declare all as dynamic, and used in all stages
     // this will increase GPU time!
-    m_drawing.addBinding(DRAW_UBO_SCENE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    m_drawing.addBinding(DRAW_UBO_MATRIX, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    m_drawing.addBinding(DRAW_UBO_MATERIAL, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    m_drawing.addBinding(DRAW_UBO_SCENE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1,
+                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    m_drawing.addBinding(DRAW_UBO_MATRIX, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1,
+                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    m_drawing.addBinding(DRAW_UBO_MATERIAL, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1,
+                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_SPLITDYNAMIC
-    m_drawing.addBinding(DRAW_UBO_SCENE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    m_drawing.addBinding(DRAW_UBO_SCENE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     m_drawing.addBinding(DRAW_UBO_MATRIX, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT, 0);
     m_drawing.addBinding(DRAW_UBO_MATERIAL, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
 #endif
@@ -350,10 +401,11 @@ bool ResourcesVK::init(ContextWindow* contextWindow, nvh::Profiler* profiler)
 ///////////////////////////////////////////////////////////////////////////////////////////
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
 
-    m_drawing.addBinding(DRAW_UBO_SCENE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    m_drawing.addBinding(DRAW_UBO_SCENE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     m_drawing.initLayout();
 
-    assert(sizeof(ObjectData) + sizeof(MaterialData) <= m_physical->properties.limits.maxPushConstantsSize);
+    assert(sizeof(ObjectData) + sizeof(MaterialData) <= m_physical->m_properties.limits.maxPushConstantsSize);
 
     // warning this will only work on NVIDIA as we support 256 Bytes push constants
     // minimum is 128 Bytes, which would not fit both data
@@ -370,7 +422,8 @@ bool ResourcesVK::init(ContextWindow* contextWindow, nvh::Profiler* profiler)
 ///////////////////////////////////////////////////////////////////////////////////////////
 #elif UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_INDEX
 
-    m_drawing.addBinding(DRAW_UBO_SCENE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    m_drawing.addBinding(DRAW_UBO_SCENE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     m_drawing.addBinding(DRAW_UBO_MATRIX, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, 0);
     m_drawing.addBinding(DRAW_UBO_MATERIAL, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     m_drawing.initLayout();
@@ -390,7 +443,8 @@ bool ResourcesVK::init(ContextWindow* contextWindow, nvh::Profiler* profiler)
 
 
   {
-    ImGui::InitVK(m_device, *m_physical, passes.sceneUI, m_queue, m_queueFamily);
+    ImGui::InitVK(m_context->m_device, m_context->m_physicalDevice, m_context->m_queueGCT.queue,
+                  m_context->m_queueGCT.familyIndex, m_framebuffer.passUI, 0);
   }
 
   return true;
@@ -402,6 +456,13 @@ void ResourcesVK::deinit()
 
   ImGui::ShutdownVK();
 
+  {
+    vkDestroyBuffer(m_device, m_common.viewBuffer, NULL);
+    m_memAllocator.free(m_common.viewAID);
+    vkDestroyBuffer(m_device, m_common.animBuffer, NULL);
+    m_memAllocator.free(m_common.animAID);
+  }
+
   m_ringFences.deinit();
   m_ringCmdPool.deinit();
 
@@ -409,22 +470,23 @@ void ResourcesVK::deinit()
   deinitFramebuffer();
   deinitPipes();
   deinitPrograms();
-  
-  m_profilerVK.deinit();
 
-  vkDestroyRenderPass(m_device, passes.sceneClear, NULL);
-  vkDestroyRenderPass(m_device, passes.scenePreserve, NULL);
-  vkDestroyRenderPass(m_device, passes.sceneUI, NULL);
+  vkDestroyRenderPass(m_device, m_framebuffer.passClear, NULL);
+  vkDestroyRenderPass(m_device, m_framebuffer.passPreserve, NULL);
+  vkDestroyRenderPass(m_device, m_framebuffer.passUI, NULL);
 
   m_drawing.deinit();
   m_anim.deinit();
+
+  m_profilerVK.deinit();
+  m_memAllocator.deinit();
 
 #if HAS_OPENGL
   vkDestroySemaphore(m_device, m_semImageRead, NULL);
   vkDestroySemaphore(m_device, m_semImageWritten, NULL);
   m_device = NULL;
 
-  m_ctxContent.deinitContext();
+  m_context->deinit();
 #endif
 }
 
@@ -437,9 +499,8 @@ bool ResourcesVK::initPrograms(const std::string& path, const std::string& prepe
   m_shaderManager.addDirectory(path);
   m_shaderManager.addDirectory(std::string("GLSL_" PROJECT_NAME));
   m_shaderManager.addDirectory(path + std::string(PROJECT_RELDIRECTORY));
-  //m_shaderManager.addDirectory(std::string(PROJECT_ABSDIRECTORY));
 
-  m_shaderManager.registerInclude("common.h", "common.h");
+  m_shaderManager.registerInclude("common.h");
 
   m_shaderManager.m_prepend =
       prepend + nvh::ShaderFileManager::format("#define UNIFORMS_ALLDYNAMIC %d\n", UNIFORMS_ALLDYNAMIC)
@@ -451,23 +512,24 @@ bool ResourcesVK::initPrograms(const std::string& path, const std::string& prepe
       + nvh::ShaderFileManager::format("#define UNIFORMS_TECHNIQUE %d\n", UNIFORMS_TECHNIQUE);
 
   ///////////////////////////////////////////////////////////////////////////////////////////
-  moduleids.vertex_tris = m_shaderManager.createShaderModule(
-      VK_SHADER_STAGE_VERTEX_BIT, "scene.vert.glsl", "#define WIREMODE 0\n");
-  moduleids.fragment_tris = m_shaderManager.createShaderModule(
-      VK_SHADER_STAGE_FRAGMENT_BIT, "scene.frag.glsl", "#define WIREMODE 0\n");
+  m_moduleids.vertex_tris =
+      m_shaderManager.createShaderModule(VK_SHADER_STAGE_VERTEX_BIT, "scene.vert.glsl", "#define WIREMODE 0\n");
+  m_moduleids.fragment_tris =
+      m_shaderManager.createShaderModule(VK_SHADER_STAGE_FRAGMENT_BIT, "scene.frag.glsl", "#define WIREMODE 0\n");
 
-  moduleids.vertex_line = m_shaderManager.createShaderModule(
-      VK_SHADER_STAGE_VERTEX_BIT, "scene.vert.glsl", "#define WIREMODE 1\n");
-  moduleids.fragment_line = m_shaderManager.createShaderModule(
-      VK_SHADER_STAGE_FRAGMENT_BIT, "scene.frag.glsl", "#define WIREMODE 1\n");
+  m_moduleids.vertex_line =
+      m_shaderManager.createShaderModule(VK_SHADER_STAGE_VERTEX_BIT, "scene.vert.glsl", "#define WIREMODE 1\n");
+  m_moduleids.fragment_line =
+      m_shaderManager.createShaderModule(VK_SHADER_STAGE_FRAGMENT_BIT, "scene.frag.glsl", "#define WIREMODE 1\n");
 
   ///////////////////////////////////////////////////////////////////////////////////////////
 #if UNIFORMS_TECHNIQUE == UNIFORMS_PUSHCONSTANTS_RAW
   assert(sizeof(ObjectData) == 128);  // offset provided to material layout
 #endif
 
-  moduleids.compute_animation = m_shaderManager.createShaderModule(
-      VK_SHADER_STAGE_COMPUTE_BIT, "animation.comp.glsl");
+  m_moduleids.compute_animation = m_shaderManager.createShaderModule(VK_SHADER_STAGE_COMPUTE_BIT,
+                                                                     "animation.comp."
+                                                                     "glsl");
 
   bool valid = m_shaderManager.areShaderModulesValid();
 
@@ -488,11 +550,11 @@ void ResourcesVK::reloadPrograms(const std::string& prepend)
 
 void ResourcesVK::updatedPrograms()
 {
-  shaders.fragment_tris     = m_shaderManager.get(moduleids.fragment_tris);
-  shaders.vertex_tris       = m_shaderManager.get(moduleids.vertex_tris);
-  shaders.fragment_line     = m_shaderManager.get(moduleids.fragment_line);
-  shaders.vertex_line       = m_shaderManager.get(moduleids.vertex_line);
-  shaders.compute_animation = m_shaderManager.get(moduleids.compute_animation);
+  m_shaders.fragment_tris     = m_shaderManager.get(m_moduleids.fragment_tris);
+  m_shaders.vertex_tris       = m_shaderManager.get(m_moduleids.vertex_tris);
+  m_shaders.fragment_line     = m_shaderManager.get(m_moduleids.fragment_line);
+  m_shaders.vertex_line       = m_shaderManager.get(m_moduleids.vertex_line);
+  m_shaders.compute_animation = m_shaderManager.get(m_moduleids.compute_animation);
 
   initPipes();
 }
@@ -535,8 +597,7 @@ VkRenderPass ResourcesVK::createPass(bool clear, int msaa)
   attachments[0].finalLayout             = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
   attachments[0].flags                   = 0;
 
-  VkFormat depthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT;
-  m_physical->getOptimalDepthStencilFormat(depthStencilFormat);
+  VkFormat depthStencilFormat = nvvk::findDepthStencilFormat(m_physical);
 
   attachments[1].format              = depthStencilFormat;
   attachments[1].samples             = samplesUsed;
@@ -608,45 +669,53 @@ VkRenderPass ResourcesVK::createPassUI(int msaa)
 }
 
 
-bool ResourcesVK::initFramebuffer(int width, int height, int msaa, bool vsync)
+bool ResourcesVK::initFramebuffer(int winWidth, int winHeight, int msaa, bool vsync)
 {
   VkResult result;
+  int      supersample = 1;
 
-  m_fboIncarnation++;
+  m_fboChangeID++;
 
-  if(images.scene_color.m_value != 0)
+  if(m_framebuffer.imgColor != 0)
   {
     deinitFramebuffer();
   }
 
-  int oldmsaa = m_msaa;
+  m_framebuffer.memAllocator.init(m_device, m_physical);
 
-  m_width  = width;
-  m_height = height;
-  m_msaa   = msaa;
-  m_vsync  = vsync;
+  int  oldMsaa     = m_framebuffer.msaa;
+  bool oldResolved = m_framebuffer.supersample > 1;
 
-  if(oldmsaa != msaa)
+  m_framebuffer.renderWidth  = winWidth * supersample;
+  m_framebuffer.renderHeight = winHeight * supersample;
+  m_framebuffer.supersample  = supersample;
+  m_framebuffer.msaa         = msaa;
+  m_framebuffer.vsync        = vsync;
+
+  LOGI("framebuffer: %d x %d (%d msaa)\n", m_framebuffer.renderWidth, m_framebuffer.renderHeight, m_framebuffer.msaa);
+
+  m_framebuffer.useResolved = supersample > 1 || msaa;
+
+  if(oldMsaa != m_framebuffer.msaa || oldResolved != m_framebuffer.useResolved)
   {
-    vkDestroyRenderPass(m_device, passes.sceneClear, NULL);
-    vkDestroyRenderPass(m_device, passes.scenePreserve, NULL);
-    vkDestroyRenderPass(m_device, passes.sceneUI, NULL);
+    vkDestroyRenderPass(m_device, m_framebuffer.passClear, NULL);
+    vkDestroyRenderPass(m_device, m_framebuffer.passPreserve, NULL);
+    vkDestroyRenderPass(m_device, m_framebuffer.passUI, NULL);
 
     // recreate the render passes with new msaa setting
-    passes.sceneClear    = createPass(true, msaa);
-    passes.scenePreserve = createPass(false, msaa);
-    passes.sceneUI       = createPassUI(msaa);
+    m_framebuffer.passClear    = createPass(true, m_framebuffer.msaa);
+    m_framebuffer.passPreserve = createPass(false, m_framebuffer.msaa);
+    m_framebuffer.passUI       = createPassUI(m_framebuffer.msaa);
   }
 
-
-  VkSampleCountFlagBits samplesUsed = getSampleCountFlagBits(msaa);
+  VkSampleCountFlagBits samplesUsed = getSampleCountFlagBits(m_framebuffer.msaa);
 
   // color
   VkImageCreateInfo cbImageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   cbImageInfo.imageType         = VK_IMAGE_TYPE_2D;
   cbImageInfo.format            = VK_FORMAT_R8G8B8A8_UNORM;
-  cbImageInfo.extent.width      = width;
-  cbImageInfo.extent.height     = height;
+  cbImageInfo.extent.width      = m_framebuffer.renderWidth;
+  cbImageInfo.extent.height     = m_framebuffer.renderHeight;
   cbImageInfo.extent.depth      = 1;
   cbImageInfo.mipLevels         = 1;
   cbImageInfo.arrayLayers       = 1;
@@ -656,38 +725,37 @@ bool ResourcesVK::initFramebuffer(int width, int height, int msaa, bool vsync)
   cbImageInfo.flags             = 0;
   cbImageInfo.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
 
-  result = vkCreateImage(m_device, &cbImageInfo, NULL, &images.scene_color);
-  assert(result == VK_SUCCESS);
+  m_framebuffer.imgColor =
+      m_framebuffer.memAllocator.createImage(cbImageInfo, nvvk::AllocationID(), VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
   // depth stencil
-  VkFormat depthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT;
-  m_physical->getOptimalDepthStencilFormat(depthStencilFormat);
+  VkFormat depthStencilFormat = nvvk::findDepthStencilFormat(m_physical);
 
   VkImageCreateInfo dsImageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   dsImageInfo.imageType         = VK_IMAGE_TYPE_2D;
   dsImageInfo.format            = depthStencilFormat;
-  dsImageInfo.extent.width      = width;
-  dsImageInfo.extent.height     = height;
+  dsImageInfo.extent.width      = m_framebuffer.renderWidth;
+  dsImageInfo.extent.height     = m_framebuffer.renderHeight;
   dsImageInfo.extent.depth      = 1;
   dsImageInfo.mipLevels         = 1;
   dsImageInfo.arrayLayers       = 1;
   dsImageInfo.samples           = samplesUsed;
   dsImageInfo.tiling            = VK_IMAGE_TILING_OPTIMAL;
-  dsImageInfo.usage             = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+  dsImageInfo.usage             = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
   dsImageInfo.flags             = 0;
   dsImageInfo.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
 
-  result = vkCreateImage(m_device, &dsImageInfo, NULL, &images.scene_depthstencil);
-  assert(result == VK_SUCCESS);
+  m_framebuffer.imgDepthStencil =
+      m_framebuffer.memAllocator.createImage(dsImageInfo, nvvk::AllocationID(), VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-  if(msaa)
+  if(m_framebuffer.useResolved)
   {
     // resolve image
     VkImageCreateInfo resImageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     resImageInfo.imageType         = VK_IMAGE_TYPE_2D;
     resImageInfo.format            = VK_FORMAT_R8G8B8A8_UNORM;
-    resImageInfo.extent.width      = width;
-    resImageInfo.extent.height     = height;
+    resImageInfo.extent.width      = winWidth;
+    resImageInfo.extent.height     = winHeight;
     resImageInfo.extent.depth      = 1;
     resImageInfo.mipLevels         = 1;
     resImageInfo.arrayLayers       = 1;
@@ -697,39 +765,8 @@ bool ResourcesVK::initFramebuffer(int width, int height, int msaa, bool vsync)
     resImageInfo.flags         = 0;
     resImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    result = vkCreateImage(m_device, &resImageInfo, NULL, &images.scene_color_resolved);
-    assert(result == VK_SUCCESS);
-  }
-
-  // handle allocation for all of them
-
-  VkDeviceSize         cbImageOffset  = 0;
-  VkDeviceSize         dsImageOffset  = 0;
-  VkDeviceSize         resImageOffset = 0;
-  VkMemoryAllocateInfo memInfo        = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-  VkMemoryRequirements memReqs;
-  bool                 valid;
-
-  vkGetImageMemoryRequirements(m_device, images.scene_color, &memReqs);
-  valid = m_physical->appendMemoryAllocationInfo(memReqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memInfo, cbImageOffset);
-  assert(valid);
-  vkGetImageMemoryRequirements(m_device, images.scene_depthstencil, &memReqs);
-  valid = m_physical->appendMemoryAllocationInfo(memReqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memInfo, dsImageOffset);
-  assert(valid);
-  if(msaa)
-  {
-    vkGetImageMemoryRequirements(m_device, images.scene_color_resolved, &memReqs);
-    valid = m_physical->appendMemoryAllocationInfo(memReqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memInfo, resImageOffset);
-    assert(valid);
-  }
-
-  result = vkAllocateMemory(m_device, &memInfo, NULL, &mem.framebuffer);
-  assert(result == VK_SUCCESS);
-  vkBindImageMemory(m_device, images.scene_color, mem.framebuffer, cbImageOffset);
-  vkBindImageMemory(m_device, images.scene_depthstencil, mem.framebuffer, dsImageOffset);
-  if(msaa)
-  {
-    vkBindImageMemory(m_device, images.scene_color_resolved, mem.framebuffer, resImageOffset);
+    m_framebuffer.imgColorResolved =
+        m_framebuffer.memAllocator.createImage(resImageInfo, nvvk::AllocationID(), VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
   }
 
   // views after allocation handling
@@ -748,14 +785,14 @@ bool ResourcesVK::initFramebuffer(int width, int height, int msaa, bool vsync)
   cbImageViewInfo.subresourceRange.baseArrayLayer = 0;
   cbImageViewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
 
-  cbImageViewInfo.image = images.scene_color;
-  result                = vkCreateImageView(m_device, &cbImageViewInfo, NULL, &views.scene_color);
+  cbImageViewInfo.image = m_framebuffer.imgColor;
+  result                = vkCreateImageView(m_device, &cbImageViewInfo, NULL, &m_framebuffer.viewColor);
   assert(result == VK_SUCCESS);
 
-  if(msaa)
+  if(m_framebuffer.useResolved)
   {
-    cbImageViewInfo.image = images.scene_color_resolved;
-    result                = vkCreateImageView(m_device, &cbImageViewInfo, NULL, &views.scene_color_resolved);
+    cbImageViewInfo.image = m_framebuffer.imgColorResolved;
+    result                = vkCreateImageView(m_device, &cbImageViewInfo, NULL, &m_framebuffer.viewColorResolved);
     assert(result == VK_SUCCESS);
   }
 
@@ -773,8 +810,8 @@ bool ResourcesVK::initFramebuffer(int width, int height, int msaa, bool vsync)
   dsImageViewInfo.subresourceRange.baseArrayLayer = 0;
   dsImageViewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_STENCIL_BIT | VK_IMAGE_ASPECT_DEPTH_BIT;
 
-  dsImageViewInfo.image = images.scene_depthstencil;
-  result                = vkCreateImageView(m_device, &dsImageViewInfo, NULL, &views.scene_depthstencil);
+  dsImageViewInfo.image = m_framebuffer.imgDepthStencil;
+  result                = vkCreateImageView(m_device, &dsImageViewInfo, NULL, &m_framebuffer.viewDepthStencil);
   assert(result == VK_SUCCESS);
   // initial resource transitions
   {
@@ -785,17 +822,17 @@ bool ResourcesVK::initFramebuffer(int width, int height, int msaa, bool vsync)
                          m_swapChain->getImageCount(), m_swapChain->getImageMemoryBarriers());
 #endif
 
-    cmdImageTransition(cmd, images.scene_color, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_TRANSFER_READ_BIT,
+    cmdImageTransition(cmd, m_framebuffer.imgColor, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_TRANSFER_READ_BIT,
                        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-    cmdImageTransition(cmd, images.scene_depthstencil, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0,
+    cmdImageTransition(cmd, m_framebuffer.imgDepthStencil, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0,
                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-    if(msaa)
+    if(m_framebuffer.useResolved)
     {
-      cmdImageTransition(cmd, images.scene_color_resolved, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
-                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      cmdImageTransition(cmd, m_framebuffer.imgColorResolved, VK_IMAGE_ASPECT_COLOR_BIT, 0,
+                         VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     }
 
     vkEndCommandBuffer(cmd);
@@ -809,27 +846,27 @@ bool ResourcesVK::initFramebuffer(int width, int height, int msaa, bool vsync)
   {
     // Create framebuffers
     VkImageView bindInfos[2];
-    bindInfos[0] = views.scene_color;
-    bindInfos[1] = views.scene_depthstencil;
+    bindInfos[0] = m_framebuffer.viewColor;
+    bindInfos[1] = m_framebuffer.viewDepthStencil;
 
     VkFramebuffer           fb;
     VkFramebufferCreateInfo fbInfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
     fbInfo.attachmentCount         = NV_ARRAY_SIZE(bindInfos);
     fbInfo.pAttachments            = bindInfos;
-    fbInfo.width                   = width;
-    fbInfo.height                  = height;
+    fbInfo.width                   = m_framebuffer.renderWidth;
+    fbInfo.height                  = m_framebuffer.renderHeight;
     fbInfo.layers                  = 1;
 
-    fbInfo.renderPass = passes.sceneClear;
+    fbInfo.renderPass = m_framebuffer.passClear;
     result            = vkCreateFramebuffer(m_device, &fbInfo, NULL, &fb);
     assert(result == VK_SUCCESS);
-    fbos.scene = fb;
+    m_framebuffer.fboScene = fb;
   }
 
 
   // ui related
   {
-    VkImageView uiTarget = msaa ? views.scene_color_resolved : views.scene_color;
+    VkImageView uiTarget = m_framebuffer.useResolved ? m_framebuffer.viewColorResolved : m_framebuffer.viewColor;
 
     // Create framebuffers
     VkImageView bindInfos[1];
@@ -839,44 +876,49 @@ bool ResourcesVK::initFramebuffer(int width, int height, int msaa, bool vsync)
     VkFramebufferCreateInfo fbInfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
     fbInfo.attachmentCount         = NV_ARRAY_SIZE(bindInfos);
     fbInfo.pAttachments            = bindInfos;
-    fbInfo.width                   = width;
-    fbInfo.height                  = height;
+    fbInfo.width                   = winWidth;
+    fbInfo.height                  = winHeight;
     fbInfo.layers                  = 1;
 
-    fbInfo.renderPass = passes.sceneUI;
+    fbInfo.renderPass = m_framebuffer.passUI;
     result            = vkCreateFramebuffer(m_device, &fbInfo, NULL, &fb);
     assert(result == VK_SUCCESS);
-    fbos.sceneUI = fb;
+    m_framebuffer.fboUI = fb;
   }
 
   {
-    // viewport
-    int vpWidth  = width;
-    int vpHeight = height;
-
     VkViewport vp;
     VkRect2D   sc;
     vp.x        = 0;
     vp.y        = 0;
-    vp.height   = float(vpHeight);
-    vp.width    = float(vpWidth);
+    vp.width    = float(m_framebuffer.renderWidth);
+    vp.height   = float(m_framebuffer.renderHeight);
     vp.minDepth = 0.0f;
     vp.maxDepth = 1.0f;
 
     sc.offset.x      = 0;
     sc.offset.y      = 0;
-    sc.extent.width  = vpWidth;
-    sc.extent.height = vpHeight;
+    sc.extent.width  = m_framebuffer.renderWidth;
+    sc.extent.height = m_framebuffer.renderHeight;
 
-    states.viewport = vp;
-    states.scissor  = sc;
+    m_framebuffer.viewport = vp;
+    m_framebuffer.scissor  = sc;
+
+    vp.width         = float(winWidth);
+    vp.height        = float(winHeight);
+    sc.extent.width  = winWidth;
+    sc.extent.height = winHeight;
+
+    m_framebuffer.viewportUI = vp;
+    m_framebuffer.scissorUI  = sc;
   }
 
-  if(msaa != oldmsaa)
+
+  if(m_framebuffer.msaa != oldMsaa)
   {
-    ImGui::ReInitPipelinesVK(m_device, passes.sceneUI);
+    ImGui::ReInitPipelinesVK(m_framebuffer.passUI);
   }
-  if(msaa != oldmsaa && hasPipes())
+  if(m_framebuffer.msaa != oldMsaa && hasPipes())
   {
     // reinit pipelines
     initPipes();
@@ -889,62 +931,58 @@ void ResourcesVK::deinitFramebuffer()
 {
   synchronize();
 
-  vkDestroyImageView(m_device, views.scene_color, NULL);
-  vkDestroyImageView(m_device, views.scene_depthstencil, NULL);
+  vkDestroyImageView(m_device, m_framebuffer.viewColor, nullptr);
+  vkDestroyImageView(m_device, m_framebuffer.viewDepthStencil, nullptr);
+  m_framebuffer.viewColor        = VK_NULL_HANDLE;
+  m_framebuffer.viewDepthStencil = VK_NULL_HANDLE;
 
-  views.scene_color        = NULL;
-  views.scene_depthstencil = NULL;
+  vkDestroyImage(m_device, m_framebuffer.imgColor, nullptr);
+  vkDestroyImage(m_device, m_framebuffer.imgDepthStencil, nullptr);
+  m_framebuffer.imgColor        = VK_NULL_HANDLE;
+  m_framebuffer.imgDepthStencil = VK_NULL_HANDLE;
 
-  vkDestroyImage(m_device, images.scene_color, NULL);
-  vkDestroyImage(m_device, images.scene_depthstencil, NULL);
-  images.scene_color        = NULL;
-  images.scene_depthstencil = NULL;
-
-  if(images.scene_color_resolved)
+  if(m_framebuffer.imgColorResolved)
   {
-    vkDestroyImageView(m_device, views.scene_color_resolved, NULL);
-    views.scene_color_resolved = NULL;
+    vkDestroyImageView(m_device, m_framebuffer.viewColorResolved, nullptr);
+    m_framebuffer.viewColorResolved = VK_NULL_HANDLE;
 
-    vkDestroyImage(m_device, images.scene_color_resolved, NULL);
-    images.scene_color_resolved = NULL;
+    vkDestroyImage(m_device, m_framebuffer.imgColorResolved, nullptr);
+    m_framebuffer.imgColorResolved = VK_NULL_HANDLE;
   }
 
-  vkFreeMemory(m_device, mem.framebuffer, NULL);
+  vkDestroyFramebuffer(m_device, m_framebuffer.fboScene, nullptr);
+  m_framebuffer.fboScene = VK_NULL_HANDLE;
 
-  vkDestroyFramebuffer(m_device, fbos.scene, NULL);
-  fbos.scene = NULL;
+  vkDestroyFramebuffer(m_device, m_framebuffer.fboUI, nullptr);
+  m_framebuffer.fboUI = VK_NULL_HANDLE;
 
-  vkDestroyFramebuffer(m_device, fbos.sceneUI, NULL);
-  fbos.sceneUI = NULL;
+  m_framebuffer.memAllocator.freeAll();
+  m_framebuffer.memAllocator.deinit();
 }
 
 void ResourcesVK::initPipes()
 {
   VkResult result;
 
-  m_pipeIncarnation++;
+  m_pipeChangeID++;
 
   if(hasPipes())
   {
     deinitPipes();
   }
 
-  VkSampleCountFlagBits samplesUsed = getSampleCountFlagBits(m_msaa);
+  VkSampleCountFlagBits samplesUsed = getSampleCountFlagBits(m_framebuffer.msaa);
 
   // Create static state info for the pipeline.
   VkVertexInputBindingDescription vertexBinding;
   vertexBinding.stride                             = sizeof(CadScene::Vertex);
   vertexBinding.inputRate                          = VK_VERTEX_INPUT_RATE_VERTEX;
   vertexBinding.binding                            = 0;
-  VkVertexInputAttributeDescription attributes[2]  = {};
-  attributes[0].location                           = VERTEX_POS;
+  VkVertexInputAttributeDescription attributes[1]  = {};
+  attributes[0].location                           = VERTEX_POS_OCTNORMAL;
   attributes[0].binding                            = 0;
-  attributes[0].format                             = VK_FORMAT_R32G32B32_SFLOAT;
-  attributes[0].offset                             = offsetof(CadScene::Vertex, position);
-  attributes[1].location                           = VERTEX_NORMAL;
-  attributes[1].binding                            = 0;
-  attributes[1].format                             = VK_FORMAT_R32G32B32_SFLOAT;
-  attributes[1].offset                             = offsetof(CadScene::Vertex, normal);
+  attributes[0].format                             = VK_FORMAT_R32G32B32A32_SFLOAT;
+  attributes[0].offset                             = 0;
   VkPipelineVertexInputStateCreateInfo viStateInfo = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
   viStateInfo.vertexBindingDescriptionCount        = 1;
   viStateInfo.pVertexBindingDescriptions           = &vertexBinding;
@@ -1026,7 +1064,7 @@ void ResourcesVK::initPipes()
     pipelineInfo.pTessellationState           = &tessStateInfo;
     pipelineInfo.pDynamicState                = &dynStateInfo;
 
-    pipelineInfo.renderPass = passes.scenePreserve;
+    pipelineInfo.renderPass = m_framebuffer.passPreserve;
     pipelineInfo.subpass    = 0;
 
     VkPipelineShaderStageCreateInfo stages[2];
@@ -1048,31 +1086,31 @@ void ResourcesVK::initPipes()
     fsStageInfo.pName                            = "main";
     fsStageInfo.module                           = NULL;
 
-    vsStageInfo.module = shaders.vertex_tris;
-    fsStageInfo.module = shaders.fragment_tris;
-    
+    vsStageInfo.module = m_shaders.vertex_tris;
+    fsStageInfo.module = m_shaders.fragment_tris;
+
     result = vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
     assert(result == VK_SUCCESS);
-    pipes.tris = pipeline;
+    m_pipes.tris = pipeline;
 
     rsStateInfo.depthBiasEnable         = VK_TRUE;
     rsStateInfo.depthBiasConstantFactor = 1.0f;
     rsStateInfo.depthBiasSlopeFactor    = 1.0;
 
-    vsStageInfo.module = shaders.vertex_tris;
-    
-    fsStageInfo.module = shaders.fragment_tris;
-    
+    vsStageInfo.module = m_shaders.vertex_tris;
+
+    fsStageInfo.module = m_shaders.fragment_tris;
+
     result = vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
     assert(result == VK_SUCCESS);
-    pipes.line_tris = pipeline;
+    m_pipes.line_tris = pipeline;
 
     iaStateInfo.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-    vsStageInfo.module   = shaders.vertex_line;
-    fsStageInfo.module   = shaders.fragment_line;
+    vsStageInfo.module   = m_shaders.vertex_line;
+    fsStageInfo.module   = m_shaders.fragment_line;
     result               = vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
     assert(result == VK_SUCCESS);
-    pipes.line = pipeline;
+    m_pipes.line = pipeline;
   }
 
   //////////////////////////////////////////////////////////////////////////
@@ -1083,43 +1121,43 @@ void ResourcesVK::initPipes()
     VkPipelineShaderStageCreateInfo stageInfo    = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
     stageInfo.stage                              = VK_SHADER_STAGE_COMPUTE_BIT;
     stageInfo.pName                              = "main";
-    stageInfo.module                             = shaders.compute_animation;
+    stageInfo.module                             = m_shaders.compute_animation;
 
     pipelineInfo.layout = m_anim.getPipeLayout();
     pipelineInfo.stage  = stageInfo;
     result              = vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
     assert(result == VK_SUCCESS);
-    pipes.compute_animation = pipeline;
+    m_pipes.compute_animation = pipeline;
   }
 }
 
 void ResourcesVK::deinitPipes()
 {
-  vkDestroyPipeline(m_device, pipes.line, NULL);
-  vkDestroyPipeline(m_device, pipes.line_tris, NULL);
-  vkDestroyPipeline(m_device, pipes.tris, NULL);
-  vkDestroyPipeline(m_device, pipes.compute_animation, NULL);
-  pipes.line              = NULL;
-  pipes.line_tris         = NULL;
-  pipes.tris              = NULL;
-  pipes.compute_animation = NULL;
+  vkDestroyPipeline(m_device, m_pipes.line, NULL);
+  vkDestroyPipeline(m_device, m_pipes.line_tris, NULL);
+  vkDestroyPipeline(m_device, m_pipes.tris, NULL);
+  vkDestroyPipeline(m_device, m_pipes.compute_animation, NULL);
+  m_pipes.line              = NULL;
+  m_pipes.line_tris         = NULL;
+  m_pipes.tris              = NULL;
+  m_pipes.compute_animation = NULL;
 }
 
 void ResourcesVK::cmdDynamicState(VkCommandBuffer cmd) const
 {
-  vkCmdSetViewport(cmd, 0, 1, &states.viewport);
-  vkCmdSetScissor(cmd, 0, 1, &states.scissor);
+  vkCmdSetViewport(cmd, 0, 1, &m_framebuffer.viewport);
+  vkCmdSetScissor(cmd, 0, 1, &m_framebuffer.scissor);
 }
 
 void ResourcesVK::cmdBeginRenderPass(VkCommandBuffer cmd, bool clear, bool hasSecondary) const
 {
   VkRenderPassBeginInfo renderPassBeginInfo    = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-  renderPassBeginInfo.renderPass               = clear ? passes.sceneClear : passes.scenePreserve;
-  renderPassBeginInfo.framebuffer              = fbos.scene;
+  renderPassBeginInfo.renderPass               = clear ? m_framebuffer.passClear : m_framebuffer.passPreserve;
+  renderPassBeginInfo.framebuffer              = m_framebuffer.fboScene;
   renderPassBeginInfo.renderArea.offset.x      = 0;
   renderPassBeginInfo.renderArea.offset.y      = 0;
-  renderPassBeginInfo.renderArea.extent.width  = m_width;
-  renderPassBeginInfo.renderArea.extent.height = m_height;
+  renderPassBeginInfo.renderArea.extent.width  = m_framebuffer.renderWidth;
+  renderPassBeginInfo.renderArea.extent.height = m_framebuffer.renderHeight;
   renderPassBeginInfo.clearValueCount          = 2;
   VkClearValue clearValues[2];
   clearValues[0].color.float32[0]     = 0.2f;
@@ -1133,7 +1171,7 @@ void ResourcesVK::cmdBeginRenderPass(VkCommandBuffer cmd, bool clear, bool hasSe
                        hasSecondary ? VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS : VK_SUBPASS_CONTENTS_INLINE);
 }
 
-void ResourcesVK::cmdPipelineBarrier(VkCommandBuffer cmd) const
+void ResourcesVK::cmdPipelineBarrier(VkCommandBuffer cmd, bool isOptimal) const
 {
   // color transition
   {
@@ -1146,17 +1184,16 @@ void ResourcesVK::cmdPipelineBarrier(VkCommandBuffer cmd) const
     colorRange.layerCount     = 1;
 
     VkImageMemoryBarrier memBarrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    memBarrier.srcAccessMask        = VK_ACCESS_TRANSFER_READ_BIT;
+    memBarrier.srcAccessMask        = isOptimal ? VK_ACCESS_COLOR_ATTACHMENT_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
     memBarrier.dstAccessMask        = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    memBarrier.oldLayout            = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    memBarrier.oldLayout            = isOptimal ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     memBarrier.newLayout            = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    memBarrier.image                = images.scene_color;
+    memBarrier.image                = m_framebuffer.imgColor;
     memBarrier.subresourceRange     = colorRange;
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_FALSE,
                          0, NULL, 0, NULL, 1, &memBarrier);
   }
 
-#if 1
   // Prepare the depth+stencil for reading.
   {
     VkImageSubresourceRange depthStencilRange;
@@ -1173,13 +1210,12 @@ void ResourcesVK::cmdPipelineBarrier(VkCommandBuffer cmd) const
     memBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     memBarrier.oldLayout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     memBarrier.newLayout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    memBarrier.image         = images.scene_depthstencil;
+    memBarrier.image         = m_framebuffer.imgDepthStencil;
     memBarrier.subresourceRange = depthStencilRange;
 
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
                          VK_FALSE, 0, NULL, 0, NULL, 1, &memBarrier);
   }
-#endif
 }
 
 
@@ -1250,8 +1286,8 @@ void ResourcesVK::cmdBegin(VkCommandBuffer cmd, bool singleshot, bool primary, b
   VkCommandBufferInheritanceInfo inheritInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
   if(secondary)
   {
-    inheritInfo.renderPass  = secondaryInClear ? passes.sceneClear : passes.scenePreserve;
-    inheritInfo.framebuffer = fbos.scene;
+    inheritInfo.renderPass  = secondaryInClear ? m_framebuffer.passClear : m_framebuffer.passPreserve;
+    inheritInfo.framebuffer = m_framebuffer.fboScene;
   }
 
   VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -1273,189 +1309,14 @@ void ResourcesVK::resetTempResources()
   m_ringCmdPool.reset(VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 }
 
-void ResourcesVK::flushStaging(nvvk::FixedSizeStagingBuffer& staging)
-{
-  if(staging.canFlush())
-  {
-    VkCommandBuffer cmd = createTempCmdBuffer();
-    staging.flush(cmd);
-    vkEndCommandBuffer(cmd);
-
-    submissionEnqueue(cmd);
-    submissionExecute();
-
-    synchronize();
-    resetTempResources();
-  }
-}
-
-void ResourcesVK::fillBuffer(nvvk::FixedSizeStagingBuffer& staging, VkBuffer buffer, size_t offset, size_t size, const void* data)
-{
-  if(!size)
-    return;
-
-  if(staging.cannotEnqueue(size))
-  {
-    flushStaging(staging);
-  }
-
-  staging.enqueue(buffer, offset, size, data);
-}
-
-VkBuffer ResourcesVK::createAndFillBuffer(nvvk::FixedSizeStagingBuffer& staging,
-                                          size_t                        size,
-                                          const void*                   data,
-                                          VkFlags                       usage,
-                                          VkDeviceMemory&               bufferMem,
-                                          VkFlags                       memProps)
-{
-  VkResult           result;
-  VkBuffer           buffer;
-  VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  bufferInfo.size               = size;
-  bufferInfo.usage              = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-  bufferInfo.flags              = 0;
-
-  result = vkCreateBuffer(m_device, &bufferInfo, NULL, &buffer);
-  assert(result == VK_SUCCESS);
-
-  result = allocMemAndBindBuffer(buffer, bufferMem, memProps);
-  assert(result == VK_SUCCESS);
-
-  if(data)
-  {
-    fillBuffer(staging, buffer, 0, size, data);
-  }
-
-  return buffer;
-}
-
 bool ResourcesVK::initScene(const CadScene& cadscene)
 {
   VkResult result = VK_SUCCESS;
 
   m_numMatrices = uint(cadscene.m_matrices.size());
 
-  m_geometry.resize(cadscene.m_geometry.size());
+  m_scene.init(cadscene, m_device, m_physical, m_queue, m_queueFamily);
 
-  if(m_geometry.empty())
-    return true;
-
-
-  nvvk::FixedSizeStagingBuffer staging;
-  staging.init(m_device, &m_physical->memoryProperties);
-
-#if USE_SINGLE_GEOMETRY_BUFFERS
-  size_t vbosizeAligned = 0;
-  size_t ibosizeAligned = 0;
-#else
-  VkMemoryAllocateInfo memInfoVbo = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-  VkMemoryRequirements memReqsVbo;
-  VkMemoryAllocateInfo memInfoIbo = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-  VkMemoryRequirements memReqsIbo;
-  bool valid;
-#endif
-  for(size_t i = 0; i < cadscene.m_geometry.size(); i++)
-  {
-    const CadScene::Geometry& cgeom = cadscene.m_geometry[i];
-    Geometry&                 geom  = m_geometry[i];
-
-    if(cgeom.cloneIdx < 0)
-    {
-      geom.vbo.size = cgeom.vboSize;
-      geom.ibo.size = cgeom.iboSize;
-
-#if USE_SINGLE_GEOMETRY_BUFFERS
-      geom.vbo.offset = vbosizeAligned;
-      geom.ibo.offset = ibosizeAligned;
-
-      size_t vboAlignment = 16;
-      size_t iboAlignment = 4;
-      vbosizeAligned += ((cgeom.vboSize + vboAlignment - 1) / vboAlignment) * vboAlignment;
-      ibosizeAligned += ((cgeom.iboSize + iboAlignment - 1) / iboAlignment) * iboAlignment;
-#else
-      geom.vbo.buffer = createBuffer(geom.vbo.size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-      vkGetBufferMemoryRequirements(m_device, geom.vbo.buffer, &memReqsVbo);
-      valid =
-          m_physical->appendMemoryAllocationInfo(memReqsVbo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memInfoVbo, geom.vbo.offset);
-      assert(valid);
-
-      geom.ibo.buffer = createBuffer(geom.ibo.size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-      vkGetBufferMemoryRequirements(m_device, geom.ibo.buffer, &memReqsIbo);
-      valid =
-          m_physical->appendMemoryAllocationInfo(memReqsIbo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memInfoIbo, geom.ibo.offset);
-      assert(valid);
-#endif
-    }
-  }
-
-#if USE_SINGLE_GEOMETRY_BUFFERS
-  // packs everything tightly in big buffes with a single allocation each.
-  buffers.vbo = createAndFillBuffer(staging, vbosizeAligned, NULL, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, mem.vbo);
-  buffers.ibo = createAndFillBuffer(staging, ibosizeAligned, NULL, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, mem.ibo);
-#else
-  result = vkAllocateMemory(m_device, &memInfoVbo, NULL, &mem.vbo);
-  assert(result == VK_SUCCESS);
-  result = vkAllocateMemory(m_device, &memInfoIbo, NULL, &mem.ibo);
-  assert(result == VK_SUCCESS);
-#endif
-
-  for(size_t i = 0; i < cadscene.m_geometry.size(); i++)
-  {
-    const CadScene::Geometry& cgeom = cadscene.m_geometry[i];
-    Geometry&                 geom  = m_geometry[i];
-
-    if(cgeom.cloneIdx < 0)
-    {
-#if USE_SINGLE_GEOMETRY_BUFFERS
-      geom.vbo.buffer = buffers.vbo;
-      geom.ibo.buffer = buffers.ibo;
-#else
-      vkBindBufferMemory(m_device, geom.vbo.buffer, mem.vbo, geom.vbo.offset);
-      vkBindBufferMemory(m_device, geom.ibo.buffer, mem.ibo, geom.ibo.offset);
-      geom.vbo.offset = 0;
-      geom.ibo.offset = 0;
-#endif
-
-      fillBuffer(staging, geom.vbo.buffer, geom.vbo.offset, geom.vbo.size, cgeom.vertices);
-      fillBuffer(staging, geom.ibo.buffer, geom.ibo.offset, geom.ibo.size, cgeom.indices);
-    }
-    else
-    {
-      geom = m_geometry[cgeom.cloneIdx];
-    }
-    geom.cloneIdx = cgeom.cloneIdx;
-  }
-
-  buffers.scene = createAndFillBuffer(staging, sizeof(SceneData), NULL, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, mem.scene);
-  views.scene   = {buffers.scene, 0, sizeof(SceneData)};
-
-  buffers.anim = createAndFillBuffer(staging, sizeof(AnimationData), NULL, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, mem.anim);
-  views.anim   = {buffers.anim, 0, sizeof(AnimationData)};
-
-  // FIXME, atm sizes must match, but cleaner solution is creating a temp strided memory block for material & matrix
-  assert(sizeof(CadScene::MatrixNode) == m_alignedMatrixSize);
-  assert(sizeof(CadScene::Material) == m_alignedMaterialSize);
-
-  buffers.materials =
-      createAndFillBuffer(staging, cadscene.m_materials.size() * sizeof(CadScene::Material), cadscene.m_materials.data(),
-                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, mem.materials);
-  views.materials     = {buffers.materials, 0, sizeof(CadScene::Material)};
-  views.materialsFull = {buffers.materials, 0, sizeof(CadScene::Material) * cadscene.m_materials.size()};
-
-  buffers.matrices =
-      createAndFillBuffer(staging, cadscene.m_matrices.size() * sizeof(CadScene::MatrixNode), cadscene.m_matrices.data(),
-                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, mem.matrices);
-  views.matrices     = {buffers.matrices, 0, sizeof(CadScene::MatrixNode)};
-  views.matricesFull = {buffers.matrices, 0, sizeof(CadScene::MatrixNode) * cadscene.m_matrices.size()};
-
-  buffers.matricesOrig =
-      createAndFillBuffer(staging, cadscene.m_matrices.size() * sizeof(CadScene::MatrixNode), cadscene.m_matrices.data(),
-                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, mem.matricesOrig);
-  views.matricesFullOrig = {buffers.matricesOrig, 0, sizeof(CadScene::MatrixNode) * cadscene.m_matrices.size()};
-
-  flushStaging(staging);
-  staging.deinit();
 
   {
     //////////////////////////////////////////////////////////////////////////
@@ -1495,12 +1356,12 @@ bool ResourcesVK::initScene(const CadScene& cadscene)
     // Update phase
     //////////////////////////////////////////////////////////////////////////
     VkDescriptorBufferInfo descriptors[DRAW_UBOS_NUM] = {};
-    descriptors[DRAW_UBO_SCENE]                       = views.scene;
-    descriptors[DRAW_UBO_MATRIX]                      = views.matrices;
-    descriptors[DRAW_UBO_MATERIAL]                    = views.materials;
+    descriptors[DRAW_UBO_SCENE]                       = m_common.viewInfo;
+    descriptors[DRAW_UBO_MATRIX]                      = m_scene.m_infos.matricesSingle;
+    descriptors[DRAW_UBO_MATERIAL]                    = m_scene.m_infos.materialsSingle;
 
     // There is utility functions inside the m_drawing container
-    // that handle this in a simpler fashion using m_drawing.getWrite (...), 
+    // that handle this in a simpler fashion using m_drawing.getWrite (...),
     // but for educational purposes let's have a look at the details here.
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1513,7 +1374,7 @@ bool ResourcesVK::initScene(const CadScene& cadscene)
       updateDescriptors[i].pNext = NULL;
       updateDescriptors[i].descriptorType =
           (i == DRAW_UBO_SCENE) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-      updateDescriptors[i].dstSet = m_drawing.at(i).getSets()[0];
+      updateDescriptors[i].dstSet          = m_drawing.at(i).getSets()[0];
       updateDescriptors[i].dstBinding      = 0;
       updateDescriptors[i].dstArrayElement = 0;
       updateDescriptors[i].descriptorCount = 1;
@@ -1541,7 +1402,7 @@ bool ResourcesVK::initScene(const CadScene& cadscene)
     materialsInfo.resize(m_drawing.at(DRAW_UBO_MATERIAL).getSetsCount());
     for(size_t i = 0; i < m_drawing.at(DRAW_UBO_MATERIAL).getSetsCount(); i++)
     {
-      VkDescriptorBufferInfo info = {buffers.materials, m_alignedMaterialSize * i, sizeof(CadScene::Material)};
+      VkDescriptorBufferInfo info = {m_scene.m_buffers.materials, m_alignedMaterialSize * i, sizeof(CadScene::Material)};
       materialsInfo[i] = info;
 
       VkWriteDescriptorSet updateDescriptor = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -1559,7 +1420,7 @@ bool ResourcesVK::initScene(const CadScene& cadscene)
     matricesInfo.resize(m_drawing.at(DRAW_UBO_MATRIX).getSetsCount());
     for(size_t i = 0; i < m_drawing.at(DRAW_UBO_MATRIX).getSetsCount(); i++)
     {
-      VkDescriptorBufferInfo info = {buffers.matrices, m_alignedMatrixSize * i, sizeof(CadScene::MatrixNode)};
+      VkDescriptorBufferInfo info = {m_scene.m_buffers.matrices, m_alignedMatrixSize * i, sizeof(CadScene::MatrixNode)};
       matricesInfo[i] = info;
 
       VkWriteDescriptorSet updateDescriptor = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -1640,9 +1501,9 @@ bool ResourcesVK::initScene(const CadScene& cadscene)
     // here we use the utilitys of the container class
     // animation
     VkWriteDescriptorSet updateDescriptors[] = {
-      m_anim.getWrite(0, ANIM_UBO, &views.anim),
-      m_anim.getWrite(0, ANIM_SSBO_MATRIXOUT, &views.matricesFull),
-      m_anim.getWrite(0, ANIM_SSBO_MATRIXORIG, &views.matricesFullOrig),
+        m_anim.getWrite(0, ANIM_UBO, &m_common.animInfo),
+        m_anim.getWrite(0, ANIM_SSBO_MATRIXOUT, &m_scene.m_infos.matrices),
+        m_anim.getWrite(0, ANIM_SSBO_MATRIXORIG, &m_scene.m_infos.matricesOrig),
     };
     vkUpdateDescriptorSets(m_device, NV_ARRAY_SIZE(updateDescriptors), updateDescriptors, 0, 0);
   }
@@ -1655,41 +1516,12 @@ void ResourcesVK::deinitScene()
   // guard by synchronization as some stuff is unsafe to delete while in use
   synchronize();
 
-  vkDestroyBuffer(m_device, buffers.scene, NULL);
-  vkDestroyBuffer(m_device, buffers.anim, NULL);
-  vkDestroyBuffer(m_device, buffers.matrices, NULL);
-  vkDestroyBuffer(m_device, buffers.matricesOrig, NULL);
-  vkDestroyBuffer(m_device, buffers.materials, NULL);
-
-  vkFreeMemory(m_device, mem.anim, NULL);
-  vkFreeMemory(m_device, mem.scene, NULL);
-  vkFreeMemory(m_device, mem.matrices, NULL);
-  vkFreeMemory(m_device, mem.matricesOrig, NULL);
-  vkFreeMemory(m_device, mem.materials, NULL);
-
-  for(size_t i = 0; i < m_geometry.size(); i++)
-  {
-    Geometry& geom = m_geometry[i];
-    if(geom.cloneIdx < 0)
-    {
-#if !USE_SINGLE_GEOMETRY_BUFFERS
-      vkDestroyBuffer(m_device, geom.vbo.buffer, NULL);
-      vkDestroyBuffer(m_device, geom.ibo.buffer, NULL);
-#endif
-    }
-  }
-#if USE_SINGLE_GEOMETRY_BUFFERS
-  vkDestroyBuffer(m_device, buffers.vbo, NULL);
-  vkDestroyBuffer(m_device, buffers.ibo, NULL);
-#endif
-  vkFreeMemory(m_device, mem.vbo, NULL);
-  vkFreeMemory(m_device, mem.ibo, NULL);
-
 #if UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSDYNAMIC || UNIFORMS_TECHNIQUE == UNIFORMS_MULTISETSSTATIC
   m_drawing.deinitPools();
 #else
   m_drawing.deinitPool();
 #endif
+  m_scene.deinit();
 }
 
 void ResourcesVK::synchronize()
@@ -1739,16 +1571,16 @@ void ResourcesVK::animation(const Global& global)
 {
   VkCommandBuffer cmd = createTempCmdBuffer();
 
-  vkCmdUpdateBuffer(cmd, buffers.anim, 0, sizeof(AnimationData), (const uint32_t*)&global.animUbo);
+  vkCmdUpdateBuffer(cmd, m_common.animBuffer, 0, sizeof(AnimationData), (const uint32_t*)&global.animUbo);
 
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipes.compute_animation);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipes.compute_animation);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_anim.getPipeLayout(), 0, 1, m_anim.getSets(), 0, 0);
   vkCmdDispatch(cmd, (m_numMatrices + ANIMATION_WORKGROUPSIZE - 1) / ANIMATION_WORKGROUPSIZE, 1, 1);
 
   VkBufferMemoryBarrier memBarrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
   memBarrier.dstAccessMask         = VK_ACCESS_SHADER_WRITE_BIT;
   memBarrier.srcAccessMask         = VK_ACCESS_UNIFORM_READ_BIT;
-  memBarrier.buffer                = buffers.matrices;
+  memBarrier.buffer                = m_scene.m_buffers.matrices;
   memBarrier.size                  = sizeof(AnimationData) * m_numMatrices;
   vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_FALSE, 0, NULL,
                        1, &memBarrier, 0, NULL);
@@ -1765,7 +1597,7 @@ void ResourcesVK::animationReset()
   copy.size      = sizeof(MatrixData) * m_numMatrices;
   copy.dstOffset = 0;
   copy.srcOffset = 0;
-  vkCmdCopyBuffer(cmd, buffers.matricesOrig, buffers.matrices, 1, &copy);
+  vkCmdCopyBuffer(cmd, m_scene.m_buffers.matricesOrig, m_scene.m_buffers.matrices, 1, &copy);
   vkEndCommandBuffer(cmd);
 
   submissionEnqueue(cmd);

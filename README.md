@@ -2,7 +2,7 @@
 
 The "threaded cadscene" sample allows comparing various rendering approaches using core OpenGL, extended OpenGL via bindless graphics and NV_command_list as well as Vulkan. It does make use of NVIDIA specific extensions to use Vulkan within an OpenGL context and display a Vulkan image.
 
-> **Note** This sample by default makes use of NVIDIA specific extensions to be able to use OpenGL and Vulkan at the same time. However we also provide a cmake build option to remove the OpenGL support and instead use Vulkan's WSI swapbuffers. It is recommanded to use the Vulkan stand-alone mode for Vulkan performance investigation and debugging.
+> **Note** This sample currently builds two executables: gl_vk_... has both GL and Vulkan within the same GL window using a NVIDIA extension, the vk_... one uses WSI and pure Vulkan. There is also a cmake build option to remove the gl_vk_ exe and build the only the vk_ exe. For Vulkan it is recommanded to use the Vulkan stand-alone exe for Vulkan performance investigation and debugging.
 
 The content being rendered in the sample is a CAD model which is made of many parts that have few triangles. Having such low complexity per draw-call can very often result into being CPU bound. 
 
@@ -69,22 +69,25 @@ By default all renderers also use the same principle state and binding sequences
 #### Variants:
 
  - **default**: we traverse the list and either directly render from it, or build temporary command-buffers every frame.
+
  - **re-use**: command-buffers are built only once and then re-used when rendering. This typically yields lowest CPU costs.
- - **MT**: multi-threaded, makes use of N worker-threads to build the command-buffers. The list is processed in chunks of *workingset* many items. Each thread grabs an available chunk. The global drawing order may be different every frame.
- -- **worker process**: the generated command-buffers are processed by the worker-threads directly (but protected by mutex).
- --  **main process**: command-buffers are passed to the main thread for processing (no mutex for processing step).
- 
+
+ - **MT**: multi-threaded, makes use of N worker-threads to build the command-buffers. The list is processed in chunks of *workingset* many items. Each thread grabs an available chunk. The global drawing order may be different every frame. When *batched submission* is active, the Vulkan renderers trigger their submission method at the end of their processing, i.e. once per frame.
+    - **main submit**: command-buffers are passed to the main thread for processing (no mutex for processing step).
+
+    - **worker submit**: the generated command-buffers are processed by the worker-threads directly (but protected by mutex).
+
 ### OpenGL Renderers
 
 - **gl core**
-All matrices and materials are stored in big buffer objects, which allows us to efficiently bind the required sub-range for a drawcall via glBindBufferRange(GL_UNIFORM_BUFFER, usageSlot, buffer, index * itemSize, itemSize). (Using only OpenGL 4.3 core features)
+All matrices and materials are stored in big buffer objects, which allows us to efficiently bind the required sub-range for a drawcall via `glBindBufferRange(GL_UNIFORM_BUFFER, usageSlot, buffer, index * itemSize, itemSize)`. (Using only OpenGL 4.3 core features)
 - **gl nvbindless**
 Similar as above but using glBufferAddressRange calls passing 64-bit GPU addresses instead of GL object handles. (NV_vertex_buffer_unified_memory, NV_uniform_buffer_unified_memory).
 - **gl re-use nvcmd buffer**
 Uses NV_command_list to encode sequence of drawing and binding commands. They are stored in a GL buffer object and rendered from that.
 - **gl re-use nvcmd compiled**
 The commands are not stored in a buffer but in the compiled commandlist object, allowing further optimizations especially for state changes like shaders (NV_command_list)
-- **gl MT nvcmd main process**
+- **gl MT nvcmd main submit**
 Persistent mapped buffers are used for storing the commands. The pointers are passed to the worker-threads where the command-buffers are filled. Those threads do not have a GL context. Rendering is done from the main thread. Different buffers are used every other frame to avoid fences (NV_command_list)
 
 ### Vulkan Renderers
@@ -93,10 +96,11 @@ Persistent mapped buffers are used for storing the commands. The pointers are pa
 The entire scene is encoded in a single big command-buffer, and re-used every frame.
 - **vk re-use obj-level cmd**
 Every object in the scene has its own small secondary command-buffer. This means less optimal state transitions, as each command-buffer must be self contained, there is no state inheritance (other than the rendertarget being used). At render time all the secondaries are referenced by a primary command-buffer that is built per-frame. Given the very few per-object commands, this serves rather as experiment and is not a recommended rendering method.
-- **vk MT cmd worker process**
-Each thread has FRAMES many CommandBufferPools, which are cycled through. At the beginning the pool is reset and command-buffers are generated from it in chunks. Using another pool every frame avoids the use of fences. ```USE_THREADED_SECONDARIES``` define controls whether the threaded command-buffers are secondaries (default). 
-- **vk MT cmd main process**
-Same as above just that the command-buffers are passed to main thread for submission/addition to the primary command-buffer.
+- **vk MT cmd main submit**
+Each thread has FRAMES many CommandBufferPools, which are cycled through. At the beginning the pool is reset and command-buffers are generated from it in chunks. Using another pool every frame avoids the use of additional fences.
+Secondary commandbuffers are generated on the worker threads and passed for enqueing into a primary commandbuffer that is later submitted on the main thread.
+- **vk MT cmd worker submit**
+This time we use primary commandbuffers and directly submit them to the queue from the worker threads. This means we use less optimal renderpasses (need to load/store, instead of clear/store) and we increased the amount of queue submissions, making this slower than the above.
 
 If the driver supports the new "VK_NVX_device_generated_commands" extension, you will see additional renderers
 
@@ -169,9 +173,9 @@ As this sample only uses two pipeline objects (or state-objects in OpenGL) and t
 ### Building
 Make sure to have installed the [Vulkan-SDK](http://lunarg.com/vulkan-sdk/). Always use 64-bit build configurations.
 
-Ideally clone this and other interesting [nvpro-samples](https://github.com/nvpro-samples) repositories into a common subdirectory. You will always need [shared_sources](https://github.com/nvpro-samples/shared_sources) and on Windows [shared_external](https://github.com/nvpro-samples/shared_external). The shared directories are searched either as subdirectory of the sample or one directory up.
+For best Vulkan performance use the vk exe (starting with vk_ ). If you are not interested in building the OpenGL & Vulkan combined exe then use the `BUILD_<projectname>_VULKAN_ONLY` cmake option.
 
-Using `BUILD_gl_vk_threaded_cadscene_VULKAN_ONLY` you can disable the OpenGL renderer support in the sample and create a pure Vulkan window using WSI. This is recommended if you intend to work foremost with Vulkan.
+Ideally clone this and other interesting [nvpro-samples](https://github.com/nvpro-samples) repositories into a common subdirectory. You will always need [shared_sources](https://github.com/nvpro-samples/shared_sources) and on Windows [shared_external](https://github.com/nvpro-samples/shared_external). The shared directories are searched either as subdirectory of the sample or one directory up.
 
 If you are interested in multiple samples, you can use [build_all](https://github.com/nvpro-samples/build_all) CMAKE as entry point, it will also give you options to enable/disable individual samples when creating the solutions.
 

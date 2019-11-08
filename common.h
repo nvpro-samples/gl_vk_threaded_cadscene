@@ -29,9 +29,7 @@
 #ifndef CSFTHREADED_COMMON_H
 #define CSFTHREADED_COMMON_H
 
-#define VERTEX_POS      0
-#define VERTEX_NORMAL   1
-#define VERTEX_ASSIGNS  2
+#define VERTEX_POS_OCTNORMAL      0
 
 // changing these orders may break a lot of things ;)
 #define DRAW_UBO_SCENE     0
@@ -81,6 +79,7 @@
 #ifdef __cplusplus
 namespace csfthreaded
 {
+  using namespace nvmath;
 #endif
 
 struct SceneData {

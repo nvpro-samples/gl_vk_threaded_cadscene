@@ -26,9 +26,9 @@
  */
 
 #include <assert.h>
-#include <nvpwindow.hpp>
+#include <vector>
 
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 #if HAS_OPENGL
 #include <nvgl/extensions_gl.hpp>
@@ -38,7 +38,7 @@
 bool vulkanInitLibrary()
 {
 #if HAS_OPENGL
-  if (!load_GL_NV_draw_vulkan_image(nvgl::ContextWindowGL::sysGetProcAddress)) return false;
+  if (!load_GL_NV_draw_vulkan_image(nvgl::ContextWindow::sysGetProcAddress)) return false;
 #endif
 
 #if USEVULKANSDK

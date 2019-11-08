@@ -72,7 +72,7 @@
     layout(set=0, binding=DRAW_UBO_SCENE, std140) uniform sceneBuffer {
       SceneData   scene;
     };
-    layout(set=0, binding=DRAW_UBO_MATERIAL, std430) buffer materialBuffer {
+    layout(set=0, binding=DRAW_UBO_MATERIAL, std430) readonly buffer materialBuffer {
       MaterialData    materials[];
     };
     

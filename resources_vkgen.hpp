@@ -27,72 +27,73 @@
 
 #include "resources_vk.hpp"
 
-#include <nvvk/extensions_vk.hpp>
-
 
 namespace csfthreaded {
 
-  class ResourcesVKGen : public ResourcesVK {
-  public:
-    // To use the extension, we extend the resources for vulkan 
-    // by the object table. In this table we will register all the
-    // binding/resources we need for rendering the scene.
-    // When it comes to resources, that is the only difference to 
-    // unextended Vulkan.
+class ResourcesVKGen : public ResourcesVK
+{
+public:
+  // To use the extension, we extend the resources for vulkan
+  // by the object table. In this table we will register all the
+  // binding/resources we need for rendering the scene.
+  // When it comes to resources, that is the only difference to
+  // unextended Vulkan.
 
-    // The sample uses 3 pipelines, which we will need to
-    // register in the object table at a user-specifed index 
-    // (which this enum is for).
+  // The sample uses 3 pipelines, which we will need to
+  // register in the object table at a user-specifed index
+  // (which this enum is for).
 
-    enum TablePipelines {
-      TABLE_PIPE_TRIANGLES,
-      TABLE_PIPE_LINES,
-      TABLE_PIPE_LINES_TRIANGLES,
-      NUM_TABLE_PIPES,
-    };
-
-    struct TableContent {
-      size_t                        resourceIncarnation;
-      TNulled<VkObjectTableNVX>    objectTable;
-      // we keep all used registered indices around
-      std::vector<uint32_t>         vertexBuffers;
-      std::vector<uint32_t>         indexBuffers;
-      std::vector<uint32_t>         pushConstants;
-      std::vector<uint32_t>         pipelines;
-      std::vector<uint32_t>         matrixDescriptorSets;
-      std::vector<uint32_t>         materialDescriptorSets;
-    }; 
-
-    bool                          m_generatedCommandsSupport;
-    TableContent                  m_table;
-
-    bool init(
-#if HAS_OPENGL
-      nvgl::ContextWindowGL *contextWindow,
-#else
-      nvvk::ContextWindowVK *contextWindow,
-#endif
-      nvh::Profiler* profiler
-    );
-
-    bool initScene(const CadScene&);
-    void deinitScene();
-
-    void reloadPrograms(const std::string& prepend);
-
-    void initObjectTable();
-    void updateObjectTablePipelines();
-    void deinitObjectTable();
-
-
-    ResourcesVKGen() {}
-
-    static ResourcesVKGen* get() {
-      static ResourcesVKGen res;
-
-      return &res;
-    }
-    static bool ResourcesVKGen::isAvailable();
-
+  enum TablePipelines
+  {
+    TABLE_PIPE_TRIANGLES,
+    TABLE_PIPE_LINES,
+    TABLE_PIPE_LINES_TRIANGLES,
+    NUM_TABLE_PIPES,
   };
-}
+
+  struct TableContent
+  {
+    size_t           resourceChangeID;
+    VkObjectTableNVX objectTable = VK_NULL_HANDLE;
+    // we keep all used registered indices around
+    std::vector<uint32_t> vertexBuffers;
+    std::vector<uint32_t> indexBuffers;
+    std::vector<uint32_t> pushConstants;
+    std::vector<uint32_t> pipelines;
+    std::vector<uint32_t> matrixDescriptorSets;
+    std::vector<uint32_t> materialDescriptorSets;
+  };
+
+  bool         m_generatedCommandsSupport;
+  TableContent m_table;
+
+  bool init(
+#if HAS_OPENGL
+      nvgl::ContextWindow* contextWindow,
+#else
+      nvvk::Context*   deviceInstance,
+      nvvk::SwapChain* swapChain,
+#endif
+      nvh::Profiler* profiler);
+
+  bool initScene(const CadScene&);
+  void deinitScene();
+
+  void reloadPrograms(const std::string& prepend);
+
+  void initObjectTable();
+  void updateObjectTablePipelines();
+  void deinitObjectTable();
+
+
+  ResourcesVKGen() {}
+
+  static ResourcesVKGen* get()
+  {
+    static ResourcesVKGen res;
+
+    return &res;
+  }
+  static bool ResourcesVKGen::isAvailable();
+};
+}  // namespace csfthreaded
