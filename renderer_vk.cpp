@@ -50,7 +50,11 @@ class RendererVK : public Renderer
 public:
   enum Mode
   {
+    // one secondary commandbuffer captures entire scene
     MODE_CMD_SINGLE,
+
+    // one secondary commandbuffer per object
+    // this technique is only here for comparison, the performance is expected to be really bad
     MODE_CMD_MANY,
   };
 

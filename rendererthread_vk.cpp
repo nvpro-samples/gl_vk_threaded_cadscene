@@ -717,7 +717,7 @@ void RendererThreadedVK::draw(ShadeType shadetype, Resources* NV_RESTRICT resour
     m_jobs[i].m_hasWorkCond.notify_one();
   }
 
-  // enqueue drawing here
+  // dequeue drawing here
   {
     int numTerminated = 0;
     while(true)
@@ -744,12 +744,9 @@ void RendererThreadedVK::draw(ShadeType shadetype, Resources* NV_RESTRICT resour
       {
         if(sc)
         {
+          assert(m_mode == MODE_CMD_MAINSUBMIT);
           m_numEnqueues++;
-          if(m_mode == MODE_CMD_MAINSUBMIT)
-          {
-            vkCmdExecuteCommands(primary, (uint32_t)sc->cmdbuffers.size(), &sc->cmdbuffers[0]);
-          }
-          res->submissionEnqueue(sc->cmdbuffers.size(), sc->cmdbuffers.data());
+          vkCmdExecuteCommands(primary, (uint32_t)sc->cmdbuffers.size(), sc->cmdbuffers.data());
           sc->cmdbuffers.clear();
         }
         else
