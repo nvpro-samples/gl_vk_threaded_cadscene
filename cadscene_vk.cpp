@@ -169,13 +169,13 @@ void CadSceneVK::init(const CadScene& cadscene, VkDevice device, VkPhysicalDevic
 
   m_buffers.materials    = m_memAllocator.createBuffer(materialsSize, usageFlags, m_buffers.materialsAID);
   m_buffers.matrices     = m_memAllocator.createBuffer(matricesSize, usageFlags, m_buffers.matricesAID);
-  m_buffers.matricesOrig = m_memAllocator.createBuffer(matricesSize, usageFlags, m_buffers.matricesOrigAID);
+  m_buffers.matricesOrig = m_memAllocator.createBuffer(matricesSize, usageFlags | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, m_buffers.matricesOrigAID);
 
   m_infos.materialsSingle = {m_buffers.materials, 0, sizeof(CadScene::Material)};
   m_infos.materials       = {m_buffers.materials, 0, materialsSize};
   m_infos.matricesSingle  = {m_buffers.matrices, 0, sizeof(CadScene::MatrixNode)};
   m_infos.matrices        = {m_buffers.matrices, 0, matricesSize};
-  m_infos.matricesOrig    = {m_buffers.matrices, 0, matricesSize};
+  m_infos.matricesOrig    = {m_buffers.matricesOrig, 0, matricesSize};
 
   staging.upload(m_infos.materials, cadscene.m_materials.data());
   staging.upload(m_infos.matrices, cadscene.m_matrices.data());
