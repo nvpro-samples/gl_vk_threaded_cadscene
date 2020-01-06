@@ -30,12 +30,12 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <mutex>
 #include <queue>
 
 #include "renderer.hpp"
 #include "resources_vk.hpp"
 #include <nvh/nvprint.hpp>
-#include <nvh/spin_mutex.hpp>
 #include <nvpwindow.hpp>
 
 #include <nvmath/nvmath_glsltypes.h>
@@ -167,7 +167,7 @@ private:
   size_t                    m_numEnqueues;
   std::queue<ShadeCommand*> m_drawQueue;
 
-  nvh::spin_mutex         m_workMutex;
+  std::mutex              m_workMutex;
   std::mutex              m_drawMutex;
   std::condition_variable m_drawMutexCondition;
 
@@ -181,8 +181,8 @@ private:
 
   bool getWork_ts(size_t& start, size_t& num)
   {
-    std::lock_guard<nvh::spin_mutex> lock(m_workMutex);
-    bool                             hasWork = false;
+    std::lock_guard<std::mutex> lock(m_workMutex);
+    bool                        hasWork = false;
 
     const size_t chunkSize = m_workingSet;
     size_t       total     = m_drawItems.size();

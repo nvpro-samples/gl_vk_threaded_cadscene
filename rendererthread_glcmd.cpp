@@ -31,16 +31,15 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <mutex>
 #include <queue>
 
-#include <nvh/spin_mutex.hpp>
-#include <nvmath/nvmath_glsltypes.h>
 #include <nvgl/contextwindow_gl.hpp>
+#include <nvmath/nvmath_glsltypes.h>
 #include <nvpwindow.hpp>
 
 #include "renderer.hpp"
 #include "resources_gl.hpp"
-
 
 
 #include "common.h"
@@ -143,7 +142,7 @@ private:
   std::vector<DrawItem> m_drawItems;
   const ResourcesGL* NV_RESTRICT m_resources;
   int                            m_numThreads;
-  ResourcesGL::StateChangeID  m_state;
+  ResourcesGL::StateChangeID     m_state;
 
   int       m_workingSet;
   ShadeType m_shade;
@@ -163,8 +162,8 @@ private:
   size_t                    m_numEnqueues;
   std::queue<ShadeCommand*> m_drawQueue;
 
-  nvh::spin_mutex m_workMutex;
-  nvh::spin_mutex m_drawMutex;
+  std::mutex m_workMutex;
+  std::mutex m_drawMutex;
 
   static void threadMaster(void* arg)
   {
@@ -174,8 +173,8 @@ private:
 
   bool getWork_ts(size_t& start, size_t& num)
   {
-    std::lock_guard<nvh::spin_mutex> lock(m_workMutex);
-    bool                             hasWork = false;
+    std::lock_guard<std::mutex> lock(m_workMutex);
+    bool                        hasWork = false;
 
     const size_t chunkSize = m_workingSet;
     size_t       total     = m_drawItems.size();
@@ -484,7 +483,7 @@ void RendererThreadedGLCMD::deinit()
 
 void RendererThreadedGLCMD::enqueueShadeCommand_ts(ShadeCommand* sc)
 {
-  std::lock_guard<nvh::spin_mutex> lock(m_drawMutex);
+  std::lock_guard<std::mutex> lock(m_drawMutex);
   m_drawQueue.push(sc);
 }
 
@@ -677,7 +676,7 @@ void RendererThreadedGLCMD::draw(ShadeType shadetype, Resources* NV_RESTRICT res
       ShadeCommand* sc       = NULL;
 
       {
-        std::lock_guard<nvh::spin_mutex> lock(m_drawMutex);
+        std::lock_guard<std::mutex> lock(m_drawMutex);
         if(!m_drawQueue.empty())
         {
 
