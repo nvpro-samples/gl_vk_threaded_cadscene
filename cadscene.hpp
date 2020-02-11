@@ -33,6 +33,7 @@
 
 #include <nvmath/nvmath.h>
 #include <vector>
+#include <cstdint>
 
 class CadScene
 {

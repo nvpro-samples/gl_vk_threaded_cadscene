@@ -569,7 +569,7 @@ void RendererVKGen::setupTarget(ShadeCommand& sc, ShadeType shadetype, VkCommand
   vkEndCommandBuffer(target);
 
   sc.fboChangeID  = res->m_fboChangeID;
-  sc.pipeChangeID = res->m_fboChangeID;
+  sc.pipeChangeID = res->m_pipeChangeID;
 }
 
 void RendererVKGen::build(ShadeType shadetype, Resources* NV_RESTRICT resources, VkCommandBuffer primary)

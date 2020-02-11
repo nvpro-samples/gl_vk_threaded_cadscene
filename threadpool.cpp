@@ -186,7 +186,7 @@ unsigned int ThreadPool::sysGetNumCores()
 
 unsigned int ThreadPool::sysGetNumCores()
 {
-  return tthread::thread::hardware_concurrency();
+  return std::thread::hardware_concurrency();
 }
 
 #endif

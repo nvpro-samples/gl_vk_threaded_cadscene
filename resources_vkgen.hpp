@@ -94,6 +94,6 @@ public:
 
     return &res;
   }
-  static bool ResourcesVKGen::isAvailable();
+  static bool isAvailable();
 };
 }  // namespace csfthreaded

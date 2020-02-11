@@ -79,7 +79,7 @@ public:
 
     return &res;
   }
-  static bool ResourcesVK::isAvailable();
+  static bool isAvailable();
 
 
   struct FrameBuffer

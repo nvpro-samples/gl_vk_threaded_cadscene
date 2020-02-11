@@ -301,7 +301,7 @@ bool ResourcesVK::init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::
   m_queue       = m_context->m_queueGCT.queue;
   m_queueFamily = m_context->m_queueGCT.familyIndex;
 
-  initAlignedSizes((uint32_t)m_context->m_physicalInfo.properties.limits.minUniformBufferOffsetAlignment);
+  initAlignedSizes((uint32_t)m_context->m_physicalInfo.properties10.limits.minUniformBufferOffsetAlignment);
 
   // profiler
   m_profilerVK = nvvk::ProfilerVK(profiler);
@@ -726,7 +726,7 @@ bool ResourcesVK::initFramebuffer(int winWidth, int winHeight, int msaa, bool vs
   cbImageInfo.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
 
   m_framebuffer.imgColor =
-      m_framebuffer.memAllocator.createImage(cbImageInfo, nvvk::AllocationID(), VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+      m_framebuffer.memAllocator.createImage(cbImageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
   // depth stencil
   VkFormat depthStencilFormat = nvvk::findDepthStencilFormat(m_physical);
@@ -746,7 +746,7 @@ bool ResourcesVK::initFramebuffer(int winWidth, int winHeight, int msaa, bool vs
   dsImageInfo.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
 
   m_framebuffer.imgDepthStencil =
-      m_framebuffer.memAllocator.createImage(dsImageInfo, nvvk::AllocationID(), VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+      m_framebuffer.memAllocator.createImage(dsImageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
   if(m_framebuffer.useResolved)
   {
@@ -766,7 +766,7 @@ bool ResourcesVK::initFramebuffer(int winWidth, int winHeight, int msaa, bool vs
     resImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     m_framebuffer.imgColorResolved =
-        m_framebuffer.memAllocator.createImage(resImageInfo, nvvk::AllocationID(), VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        m_framebuffer.memAllocator.createImage(resImageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
   }
 
   // views after allocation handling
