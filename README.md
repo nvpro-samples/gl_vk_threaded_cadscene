@@ -2,7 +2,7 @@
 
 The "threaded cadscene" sample allows comparing various rendering approaches using core OpenGL, extended OpenGL via bindless graphics and NV_command_list as well as Vulkan. It does make use of NVIDIA specific extensions to use Vulkan within an OpenGL context and display a Vulkan image.
 
-> **Note** This sample currently builds two executables: gl_vk_... has both GL and Vulkan within the same GL window using a NVIDIA extension, the vk_... one uses WSI and pure Vulkan. There is also a cmake build option to remove the gl_vk_ exe and build the only the vk_ exe. For Vulkan it is recommanded to use the Vulkan stand-alone exe for Vulkan performance investigation and debugging.
+> **Note** This sample currently builds two executables: gl_vk_... has both GL and Vulkan within the same GL window using a NVIDIA extension, the vk_... one uses WSI and pure Vulkan. There is also a cmake build option to remove the gl_vk_ exe and build the only the vk_ exe. For Vulkan it is recommended to use the Vulkan stand-alone exe for Vulkan performance investigation and debugging.
 
 The content being rendered in the sample is a CAD model which is made of many parts that have few triangles. Having such low complexity per draw-call can very often result into being CPU bound. 
 
@@ -102,13 +102,7 @@ Secondary commandbuffers are generated on the worker threads and passed for enqu
 - **vk MT cmd worker submit**
 This time we use primary commandbuffers and directly submit them to the queue from the worker threads. This means we use less optimal renderpasses (need to load/store, instead of clear/store) and we increased the amount of queue submissions, making this slower than the above.
 
-If the driver supports the new "VK_NVX_device_generated_commands" extension, you will see additional renderers
-
-- **vk generate cmd reset**
-- **vk generate cmd re-use**
-- **vk generate cmd re-use seqidx**
-
-There is more information about these renderers and the extension in this [document](doc/vulkan_nvxdevicegenerated.md).
+To reduce complexity, the renderers for `VK_NVX_device_generated_commands` were removed, they will get their own sample.
 
 #### Uniform Handling in Vulkan
 

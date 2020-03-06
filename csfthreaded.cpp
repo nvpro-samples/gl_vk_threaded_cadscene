@@ -56,12 +56,10 @@ int const SAMPLE_SIZE_HEIGHT(600);
 
 void setupVulkanContextInfo(nvvk::ContextCreateInfo& info)
 {
-#if HAS_OPENGL || 1
-  // not compatible with NVX_dgc or OPENGL extension atm
+#if HAS_OPENGL
+  // not compatible with OPENGL extension
   info.removeInstanceLayer("VK_LAYER_KHRONOS_validation");
 #endif
-  // validation layer is incompatible with this extension
-  info.addDeviceExtension(VK_NVX_DEVICE_GENERATED_COMMANDS_EXTENSION_NAME, true);
 }
 
 
