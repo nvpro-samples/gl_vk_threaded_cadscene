@@ -98,13 +98,13 @@ void ResourcesVK::beginFrame()
   assert(!m_withinFrame);
   m_withinFrame           = true;
   m_submissionWaitForRead = true;
-  m_ringFences.wait();
-  m_ringCmdPool.setCycle(m_ringFences.getCycleIndex());
+  m_ringFences.setCycleAndWait(m_frame);
+  m_ringCmdPool.setCycle(m_frame);
 }
 
 void ResourcesVK::endFrame()
 {
-  submissionExecute(m_ringFences.advanceCycle(), true, true);
+  submissionExecute(m_ringFences.getFence(), true, true);
   assert(m_withinFrame);
   m_withinFrame = false;
 #if HAS_OPENGL
@@ -561,7 +561,7 @@ void ResourcesVK::updatedPrograms()
 
 void ResourcesVK::deinitPrograms()
 {
-  m_shaderManager.deleteShaderModules();
+  m_shaderManager.deinit();
 }
 
 static VkSampleCountFlagBits getSampleCountFlagBits(int msaa)
@@ -725,8 +725,7 @@ bool ResourcesVK::initFramebuffer(int winWidth, int winHeight, int msaa, bool vs
   cbImageInfo.flags             = 0;
   cbImageInfo.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
 
-  m_framebuffer.imgColor =
-      m_framebuffer.memAllocator.createImage(cbImageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  m_framebuffer.imgColor = m_framebuffer.memAllocator.createImage(cbImageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
   // depth stencil
   VkFormat depthStencilFormat = nvvk::findDepthStencilFormat(m_physical);
@@ -745,8 +744,7 @@ bool ResourcesVK::initFramebuffer(int winWidth, int winHeight, int msaa, bool vs
   dsImageInfo.flags             = 0;
   dsImageInfo.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
 
-  m_framebuffer.imgDepthStencil =
-      m_framebuffer.memAllocator.createImage(dsImageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  m_framebuffer.imgDepthStencil = m_framebuffer.memAllocator.createImage(dsImageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
   if(m_framebuffer.useResolved)
   {
@@ -765,8 +763,7 @@ bool ResourcesVK::initFramebuffer(int winWidth, int winHeight, int msaa, bool vs
     resImageInfo.flags         = 0;
     resImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    m_framebuffer.imgColorResolved =
-        m_framebuffer.memAllocator.createImage(resImageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    m_framebuffer.imgColorResolved = m_framebuffer.memAllocator.createImage(resImageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
   }
 
   // views after allocation handling
@@ -818,8 +815,7 @@ bool ResourcesVK::initFramebuffer(int winWidth, int winHeight, int msaa, bool vs
     VkCommandBuffer cmd = createTempCmdBuffer();
 
 #if !HAS_OPENGL
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, NULL, 0, NULL,
-                         m_swapChain->getImageCount(), m_swapChain->getImageMemoryBarriers());
+    m_swapChain->cmdUpdateBarriers(cmd);
 #endif
 
     cmdImageTransition(cmd, m_framebuffer.imgColor, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_TRANSFER_READ_BIT,
@@ -1186,10 +1182,10 @@ void ResourcesVK::cmdPipelineBarrier(VkCommandBuffer cmd, bool isOptimal) const
     VkImageMemoryBarrier memBarrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
     memBarrier.srcAccessMask        = isOptimal ? VK_ACCESS_COLOR_ATTACHMENT_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
     memBarrier.dstAccessMask        = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    memBarrier.oldLayout            = isOptimal ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    memBarrier.newLayout            = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    memBarrier.image                = m_framebuffer.imgColor;
-    memBarrier.subresourceRange     = colorRange;
+    memBarrier.oldLayout = isOptimal ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    memBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    memBarrier.image     = m_framebuffer.imgColor;
+    memBarrier.subresourceRange = colorRange;
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_FALSE,
                          0, NULL, 0, NULL, 1, &memBarrier);
   }
@@ -1273,7 +1269,7 @@ VkCommandBuffer ResourcesVK::createCmdBuffer(VkCommandPool pool, bool singleshot
 VkCommandBuffer ResourcesVK::createTempCmdBuffer(bool primary /*=true*/, bool secondaryInClear /*=false*/)
 {
   VkCommandBuffer cmd =
-      m_ringCmdPool.createCommandBuffer(primary ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY);
+      m_ringCmdPool.createCommandBuffer(primary ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY, false);
   cmdBegin(cmd, true, primary, secondaryInClear);
   return cmd;
 }
@@ -1306,7 +1302,7 @@ void ResourcesVK::resetTempResources()
 {
   synchronize();
   m_ringFences.reset();
-  m_ringCmdPool.reset(VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+  m_ringCmdPool.reset();
 }
 
 bool ResourcesVK::initScene(const CadScene& cadscene)
@@ -1501,9 +1497,9 @@ bool ResourcesVK::initScene(const CadScene& cadscene)
     // here we use the utilitys of the container class
     // animation
     VkWriteDescriptorSet updateDescriptors[] = {
-        m_anim.getWrite(0, ANIM_UBO, &m_common.animInfo),
-        m_anim.getWrite(0, ANIM_SSBO_MATRIXOUT, &m_scene.m_infos.matrices),
-        m_anim.getWrite(0, ANIM_SSBO_MATRIXORIG, &m_scene.m_infos.matricesOrig),
+        m_anim.makeWrite(0, ANIM_UBO, &m_common.animInfo),
+        m_anim.makeWrite(0, ANIM_SSBO_MATRIXOUT, &m_scene.m_infos.matrices),
+        m_anim.makeWrite(0, ANIM_SSBO_MATRIXORIG, &m_scene.m_infos.matricesOrig),
     };
     vkUpdateDescriptorSets(m_device, NV_ARRAY_SIZE(updateDescriptors), updateDescriptors, 0, 0);
   }

@@ -113,7 +113,7 @@ private:
     RendererThreadedVK* renderer;
     int                 index;
 
-    nvvk::RingCmdPool m_pool;
+    nvvk::RingCommandPool m_pool;
 
     int                     m_frame;
     std::condition_variable m_hasWorkCond;
@@ -154,6 +154,7 @@ private:
   int       m_workingSet;
   ShadeType m_shade;
   int       m_frame;
+  uint32_t  m_cycleCurrent;
 
   ThreadJob* m_jobs;
 
@@ -212,7 +213,7 @@ private:
   void submitShadeCommand_ts(ShadeCommand* sc);
 
   template <ShadeType shadetype, bool sorted>
-  void GenerateCmdBuffers(ShadeCommand& sc, nvvk::RingCmdPool& pool, const DrawItem* NV_RESTRICT drawItems, size_t num, const ResourcesVK* NV_RESTRICT res)
+  void GenerateCmdBuffers(ShadeCommand& sc, nvvk::RingCommandPool& pool, const DrawItem* NV_RESTRICT drawItems, size_t num, const ResourcesVK* NV_RESTRICT res)
   {
     const CadScene* NV_RESTRICT scene     = m_scene;
     const CadSceneVK&           sceneVK   = res->m_scene;
@@ -228,12 +229,12 @@ private:
 
     if(m_mode == MODE_CMD_MAINSUBMIT)
     {
-      cmd = pool.createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
+      cmd = pool.createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_SECONDARY, false);
       res->cmdBegin(cmd, true, false, true);
     }
     else
     {
-      cmd = pool.createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+      cmd = pool.createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, false);
       res->cmdBegin(cmd, true, true, false);
       //res->cmdPipelineBarrier(cmd, true);
       res->cmdBeginRenderPass(cmd, false);
@@ -385,9 +386,9 @@ private:
     sc.cmdbuffers.push_back(cmd);
   }
 
-  void GenerateCmdBuffers(ShadeCommand&      sc,
-                          ShadeType          shadeType,
-                          nvvk::RingCmdPool& pool,
+  void GenerateCmdBuffers(ShadeCommand&          sc,
+                          ShadeType              shadeType,
+                          nvvk::RingCommandPool& pool,
                           const DrawItem* NV_RESTRICT drawItems,
                           size_t                      num,
                           const ResourcesVK* NV_RESTRICT res)
@@ -536,10 +537,8 @@ unsigned int RendererThreadedVK::RunThreadFrame(ShadeType shadetype, ThreadJob& 
 
   size_t offset = 0;
 
-  int subframe = m_frame % nvvk::MAX_RING_FRAMES;
-
   job.resetFrame();
-  job.m_pool.setCycle(subframe);
+  job.m_pool.setCycle(m_cycleCurrent);
 
   if(m_batchedSubmit)
   {
@@ -697,11 +696,12 @@ void RendererThreadedVK::draw(ShadeType shadetype, Resources* NV_RESTRICT resour
     }
   }
 
-  m_batchedSubmit = global.batchedSubmit;
-  m_workingSet    = global.workingSet;
-  m_shade         = shadetype;
-  m_numCurItems   = 0;
-  m_numEnqueues   = 0;
+  m_batchedSubmit    = global.batchedSubmit;
+  m_workingSet       = global.workingSet;
+  m_shade            = shadetype;
+  m_numCurItems      = 0;
+  m_numEnqueues      = 0;
+  m_cycleCurrent     = res->m_ringFences.getCycleIndex();
 
   // generate cmdbuffers in parallel
 
@@ -763,6 +763,8 @@ void RendererThreadedVK::draw(ShadeType shadetype, Resources* NV_RESTRICT resour
     }
   }
 
+  m_frame++;
+
   NV_BARRIER();
 
   if(m_mode == MODE_CMD_MAINSUBMIT)
@@ -781,8 +783,6 @@ void RendererThreadedVK::draw(ShadeType shadetype, Resources* NV_RESTRICT resour
     vkEndCommandBuffer(cmd);
     res->submissionEnqueue(cmd);
   }
-
-  m_frame++;
 }
 
 }  // namespace csfthreaded

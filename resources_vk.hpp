@@ -178,7 +178,7 @@ public:
 
   nvvk::DeviceMemoryAllocator m_memAllocator;
   nvvk::RingFences            m_ringFences;
-  nvvk::RingCmdPool           m_ringCmdPool;
+  nvvk::RingCommandPool       m_ringCmdPool;
   nvvk::BatchSubmission       m_submission;
   bool                        m_submissionWaitForRead;
 
