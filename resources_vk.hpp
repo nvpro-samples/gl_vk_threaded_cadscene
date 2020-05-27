@@ -199,37 +199,37 @@ public:
 
 
 #if HAS_OPENGL
-  bool init(nvgl::ContextWindow* window, nvh::Profiler* profiler);
+  bool init(nvgl::ContextWindow* window, nvh::Profiler* profiler) override;
 #else
-  bool                         init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::Profiler* profiler);
+  bool init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::Profiler* profiler) override;
 #endif
 
-  void deinit();
+  void deinit() override;
 
   void initPipes();
   void deinitPipes();
   bool hasPipes() { return m_pipes.compute_animation != 0; }
 
-  bool initPrograms(const std::string& path, const std::string& prepend);
-  void reloadPrograms(const std::string& prepend);
+  bool initPrograms(const std::string& path, const std::string& prepend) override;
+  void reloadPrograms(const std::string& prepend) override;
 
   void updatedPrograms();
   void deinitPrograms();
 
-  bool initFramebuffer(int width, int height, int msaa, bool vsync);
+  bool initFramebuffer(int width, int height, int msaa, bool vsync) override;
   void deinitFramebuffer();
 
-  bool initScene(const CadScene&);
-  void deinitScene();
+  bool initScene(const CadScene&) override;
+  void deinitScene() override;
 
-  void synchronize();
+  void synchronize() override;
 
-  void beginFrame();
-  void blitFrame(const Global& global);
-  void endFrame();
+  void beginFrame() override;
+  void blitFrame(const Global& global) override;
+  void endFrame() override;
 
-  void animation(const Global& global);
-  void animationReset();
+  void animation(const Global& global) override;
+  void animationReset() override;
 
   nvmath::mat4f perspectiveProjection(float fovy, float aspect, float nearPlane, float farPlane) const override;
 

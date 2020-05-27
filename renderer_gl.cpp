@@ -272,11 +272,11 @@ void RendererGL::draw(ShadeType shadetype, Resources* NV_RESTRICT resources, con
       statsDraw++;
     }
 
-    statsGeometry;
-    statsMatrix;
-    statsMaterial;
-    statsDraw;
-    statsWireMode = statsWireMode;
+    (void)statsGeometry;
+    (void)statsMatrix;
+    (void)statsMaterial;
+    (void)statsDraw;
+//    statsWireMode = statsWireMode;
   }
 
   glBindBufferBase(GL_UNIFORM_BUFFER, DRAW_UBO_SCENE, 0);
