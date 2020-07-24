@@ -1568,18 +1568,29 @@ void ResourcesVK::animation(const Global& global)
   VkCommandBuffer cmd = createTempCmdBuffer();
 
   vkCmdUpdateBuffer(cmd, m_common.animBuffer, 0, sizeof(AnimationData), (const uint32_t*)&global.animUbo);
+  {
+    VkBufferMemoryBarrier memBarrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    memBarrier.srcAccessMask         = VK_ACCESS_TRANSFER_WRITE_BIT;
+    memBarrier.dstAccessMask         = VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
+    memBarrier.buffer                = m_common.animBuffer;
+    memBarrier.size                  = sizeof(AnimationData);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_FALSE, 0, NULL,
+                         1, &memBarrier, 0, NULL);
+  }
 
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipes.compute_animation);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_anim.getPipeLayout(), 0, 1, m_anim.getSets(), 0, 0);
   vkCmdDispatch(cmd, (m_numMatrices + ANIMATION_WORKGROUPSIZE - 1) / ANIMATION_WORKGROUPSIZE, 1, 1);
 
-  VkBufferMemoryBarrier memBarrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-  memBarrier.dstAccessMask         = VK_ACCESS_SHADER_WRITE_BIT;
-  memBarrier.srcAccessMask         = VK_ACCESS_UNIFORM_READ_BIT;
-  memBarrier.buffer                = m_scene.m_buffers.matrices;
-  memBarrier.size                  = sizeof(AnimationData) * m_numMatrices;
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_FALSE, 0, NULL,
-                       1, &memBarrier, 0, NULL);
+  {
+    VkBufferMemoryBarrier memBarrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    memBarrier.srcAccessMask         = VK_ACCESS_SHADER_WRITE_BIT;
+    memBarrier.dstAccessMask         = VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
+    memBarrier.buffer                = m_scene.m_buffers.matrices;
+    memBarrier.size                  = sizeof(CadScene::MatrixNode) * m_numMatrices;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_FALSE, 0,
+                         NULL, 1, &memBarrier, 0, NULL);
+  }
 
   vkEndCommandBuffer(cmd);
 
