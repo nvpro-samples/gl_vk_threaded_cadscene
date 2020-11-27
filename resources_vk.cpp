@@ -493,7 +493,6 @@ void ResourcesVK::deinit()
 bool ResourcesVK::initPrograms(const std::string& path, const std::string& prepend)
 {
   m_shaderManager.init(m_device);
-  m_shaderManager.m_useNVextension = false;
   m_shaderManager.m_filetype       = nvh::ShaderFileManager::FILETYPE_GLSL;
 
   m_shaderManager.addDirectory(path);
