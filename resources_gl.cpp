@@ -27,7 +27,7 @@
 
 #include "resources_gl.hpp"
 
-#include <imgui/imgui_impl_gl.h>
+#include <imgui/backends/imgui_impl_gl.h>
 
 #include <nvgl/contextwindow_gl.hpp>
 
@@ -136,7 +136,6 @@ bool ResourcesGL::initPrograms(const std::string& path, const std::string& prepe
   m_progManager.addDirectory(path);
   m_progManager.addDirectory(std::string("GLSL_" PROJECT_NAME));
   m_progManager.addDirectory(path + std::string(PROJECT_RELDIRECTORY));
-  //m_progManager.addDirectory(std::string(PROJECT_ABSDIRECTORY));
 
   m_progManager.registerInclude("common.h");
 

@@ -27,7 +27,7 @@
 
 #include "resources_vk.hpp"
 
-#include <imgui/imgui_impl_vk.h>
+#include <imgui/backends/imgui_impl_vulkan.h>
 
 #include <algorithm>
 
@@ -195,7 +195,7 @@ void ResourcesVK::blitFrame(const Global& global)
     vkCmdSetViewport(cmd, 0, 1, &m_framebuffer.viewportUI);
     vkCmdSetScissor(cmd, 0, 1, &m_framebuffer.scissorUI);
 
-    ImGui::RenderDrawDataVK(cmd, global.imguiDrawData);
+    ImGui_ImplVulkan_RenderDrawData(global.imguiDrawData, cmd);
 
     vkCmdEndRenderPass(cmd);
 
@@ -493,7 +493,7 @@ void ResourcesVK::deinit()
 bool ResourcesVK::initPrograms(const std::string& path, const std::string& prepend)
 {
   m_shaderManager.init(m_device);
-  m_shaderManager.m_filetype       = nvh::ShaderFileManager::FILETYPE_GLSL;
+  m_shaderManager.m_filetype = nvh::ShaderFileManager::FILETYPE_GLSL;
 
   m_shaderManager.addDirectory(path);
   m_shaderManager.addDirectory(std::string("GLSL_" PROJECT_NAME));
@@ -909,10 +909,6 @@ bool ResourcesVK::initFramebuffer(int winWidth, int winHeight, int msaa, bool vs
   }
 
 
-  if(m_framebuffer.msaa != oldMsaa)
-  {
-    ImGui::ReInitPipelinesVK(m_framebuffer.passUI);
-  }
   if(m_framebuffer.msaa != oldMsaa && hasPipes())
   {
     // reinit pipelines

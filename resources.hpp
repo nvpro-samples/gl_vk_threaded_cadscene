@@ -87,13 +87,13 @@ public:
 
   struct Global
   {
-    SceneData         sceneUbo;
-    AnimationData     animUbo;
-    int               winWidth;
-    int               winHeight;
-    int               workingSet;
-    bool              batchedSubmit;
-    const ImDrawData* imguiDrawData;
+    SceneData     sceneUbo;
+    AnimationData animUbo;
+    int           winWidth;
+    int           winHeight;
+    int           workingSet;
+    bool          batchedSubmit;
+    ImDrawData*   imguiDrawData;
   };
 
   uint32_t m_numMatrices;

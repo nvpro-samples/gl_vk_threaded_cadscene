@@ -29,7 +29,7 @@
 
 #define DEBUG_FILTER 1
 
-#include <imgui/imgui_helper.h>
+#include <imgui/extras/imgui_helper.h>
 
 #if HAS_OPENGL
 #include <include_gl.h>
@@ -221,8 +221,8 @@ bool Sample::initScene(const char* filename, int clones, int cloneaxis)
     modelFilename = nvh::getFileName(filename);
     std::vector<std::string> searchPaths;
     searchPaths.push_back("./");
-    searchPaths.push_back(exePath() + PROJECT_RELDIRECTORY + "/");
-    searchPaths.push_back(exePath() + PROJECT_DOWNLOAD_RELDIRECTORY + "/");
+    searchPaths.push_back(exePath() + PROJECT_RELDIRECTORY);
+    searchPaths.push_back(exePath() + PROJECT_DOWNLOAD_RELDIRECTORY);
     modelFilename = nvh::findFile(modelFilename, searchPaths);
   }
 
@@ -701,7 +701,7 @@ using namespace csfthreaded;
 
 int main(int argc, const char** argv)
 {
-  NVPSystem system(argv[0], PROJECT_NAME);
+  NVPSystem system(PROJECT_NAME);
 
 #if defined(_WIN32) && defined(NDEBUG)
   //SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
@@ -710,8 +710,9 @@ int main(int argc, const char** argv)
   Sample sample;
   {
     std::vector<std::string> directories;
-    directories.push_back(".");
-    directories.push_back(NVPSystem::exePath() + std::string(PROJECT_RELDIRECTORY));
+    directories.push_back(NVPSystem::exePath());
+    directories.push_back(NVPSystem::exePath() + "/media");
+    directories.push_back(NVPSystem::exePath() + std::string(PROJECT_DOWNLOAD_RELDIRECTORY));
     sample.m_modelFilename = nvh::findFile(std::string("geforce.csf.gz"), directories);
   }
 
