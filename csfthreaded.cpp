@@ -1,35 +1,28 @@
-/* Copyright (c) 2014-2018, NVIDIA CORPORATION. All rights reserved.
+/*
+ * Copyright (c) 2014-2021, NVIDIA CORPORATION.  All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *  * Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *  * Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *  * Neither the name of NVIDIA CORPORATION nor the names of its
- *    contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
- * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2021 NVIDIA CORPORATION
+ * SPDX-License-Identifier: Apache-2.0
  */
+
 
 /* Contact ckubisch@nvidia.com (Christoph Kubisch) for feedback */
 
 #define DEBUG_FILTER 1
 
-#include <imgui/extras/imgui_helper.h>
+#include <imgui/imgui_helper.h>
 
 #if HAS_OPENGL
 #include <include_gl.h>
@@ -44,8 +37,8 @@
 #include <nvvk/context_vk.hpp>
 
 #include <nvh/cameracontrol.hpp>
-#include <nvh/geometry.hpp>
 #include <nvh/fileoperations.hpp>
+#include <nvh/geometry.hpp>
 
 #include "renderer.hpp"
 
@@ -114,7 +107,7 @@ public:
   std::vector<unsigned int> m_renderersSorted;
   std::string               m_rendererName;
 
-  Renderer* NV_RESTRICT m_renderer;
+  Renderer* NV_RESTRICT  m_renderer;
   Resources* NV_RESTRICT m_resources;
   Resources::Global      m_shared;
 
@@ -139,9 +132,9 @@ public:
 
   Sample()
 #if HAS_OPENGL
-      : AppWindowProfilerGL(false, true)
+      : AppWindowProfilerGL(false)
 #else
-      : AppWindowProfilerVK(false, true)
+      : AppWindowProfilerVK(false)
 #endif
   {
     setupConfigParameters();
@@ -441,7 +434,7 @@ void Sample::processUI(int width, int height, double time)
   m_uiTime = time;
 
   ImGui::NewFrame();
-  ImGui::SetNextWindowSize(ImVec2(350, 0), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImGuiH::dpiScaled(350, 0), ImGuiCond_FirstUseEver);
   if(ImGui::Begin("NVIDIA " PROJECT_NAME, nullptr))
   {
     //ImGui::PushItemWidth(200);
@@ -458,7 +451,7 @@ void Sample::processUI(int width, int height, double time)
     m_ui.enumCombobox(GUI_MSAA, "msaa", &m_tweak.msaa);
     //guiRegistry.enumCombobox(GUI_SUPERSAMPLE, "supersample", &tweak.supersample);
     ImGui::SliderFloat("pct visible", &m_tweak.percent, 0.0f, 1.001f);
-    ImGui::PushItemWidth(100);
+    ImGui::PushItemWidth(ImGuiH::dpiScaled(100));
     ImGuiH::InputIntClamped("copies", &m_tweak.copies, 1, 16, 1, 100, ImGuiInputTextFlags_EnterReturnsTrue);
     ImGuiH::InputIntClamped("threaded: worker threads", &m_tweak.threads, 1, Renderer::s_threadpool.getNumThreads());
     ImGuiH::InputIntClamped("threaded: workingset", &m_tweak.workingSet, 128, 16 * 1024, 1, 100, ImGuiInputTextFlags_EnterReturnsTrue);
@@ -598,7 +591,7 @@ void Sample::think(double time)
     sceneUbo.wLightPos   = sceneUbo.viewMatrixIT.row(3);
     sceneUbo.wLightPos.w = 1.0;
 
-    m_shared.workingSet = m_tweak.workingSet;
+    m_shared.workingSet    = m_tweak.workingSet;
     m_shared.batchedSubmit = m_tweak.batchedSubmit;
   }
 
