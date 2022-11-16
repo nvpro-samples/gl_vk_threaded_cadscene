@@ -149,7 +149,7 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
     geom.numIndexWire  = csfgeom->numIndexWire;
 
     Vertex* vertices = new Vertex[csfgeom->numVertices];
-    for(uint32_t i = 0; i < csfgeom->numVertices; i++)
+    for(int i = 0; i < csfgeom->numVertices; i++)
     {
       vertices[i].position[0] = csfgeom->vertex[3 * i + 0];
       vertices[i].position[1] = csfgeom->vertex[3 * i + 1];
@@ -172,7 +172,7 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
       vertices[i].normalOctX = std::min(32767, std::max(-32767, int32_t(packed.x * 32767.0f)));
       vertices[i].normalOctY = std::min(32767, std::max(-32767, int32_t(packed.y * 32767.0f)));
 
-      m_geometryBboxes[n].merge(vertices[i].position);
+      m_geometryBboxes[n].merge(nvmath::vec4f(vertices[i].position));
     }
 
     geom.vboData = vertices;
@@ -194,7 +194,7 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
 
     size_t offsetSolid = 0;
     size_t offsetWire  = csfgeom->numIndexSolid * sizeof(unsigned int);
-    for(uint32_t i = 0; i < csfgeom->numParts; i++)
+    for(int i = 0; i < csfgeom->numParts; i++)
     {
       geom.parts[i].indexWire.count  = csfgeom->parts[i].numIndexWire;
       geom.parts[i].indexSolid.count = csfgeom->parts[i].numIndexSolid;
@@ -261,7 +261,7 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
     m_objectAssigns[numObjects] = nvmath::vec2i(object.matrixIndex, object.geometryIndex);
 
     object.parts.resize(csfnode->numParts);
-    for(uint32_t i = 0; i < csfnode->numParts; i++)
+    for(int i = 0; i < csfnode->numParts; i++)
     {
       object.parts[i].active        = 1;
       object.parts[i].matrixIndex   = csfnode->parts[i].nodeIDX < 0 ? object.matrixIndex : csfnode->parts[i].nodeIDX;
