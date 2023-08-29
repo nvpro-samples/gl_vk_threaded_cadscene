@@ -124,7 +124,7 @@ public:
   bool initProgram();
   bool initScene(const char* filename, int clones, int cloneaxis);
   bool initFramebuffers(int width, int height);
-  void initRenderer(int type, Strategy strategy, int threads, bool sorted, float percent);
+  void initRenderer(int type, Strategy strategy, int threads, bool sorted, float percent, double uiTime = -1.0);
   void deinitRenderer();
 
   void setupConfigParameters();
@@ -257,7 +257,7 @@ void Sample::deinitRenderer()
   }
 }
 
-void Sample::initRenderer(int typesort, Strategy strategy, int threads, bool sorted, float percent)
+void Sample::initRenderer(int typesort, Strategy strategy, int threads, bool sorted, float percent, double uiTime)
 {
   int type = m_renderersSorted[typesort];
 
@@ -269,6 +269,14 @@ void Sample::initRenderer(int typesort, Strategy strategy, int threads, bool sor
     {
       m_resources->synchronize();
       m_resources->deinit();
+
+      // if we were triggered by UI then we are within imgui frame
+      // we must terminate this frame as we are changing the imgui backend
+      // later we will restart the frame
+      if (uiTime >= 0.0 && m_useUI)
+      {
+        ImGui::EndFrame();
+      }
     }
     m_resources = Renderer::getRegistry()[type]->resources();
 #if HAS_OPENGL
@@ -288,6 +296,13 @@ void Sample::initRenderer(int typesort, Strategy strategy, int threads, bool sor
     }
 
     m_lastVsync = getVsync();
+
+    if(uiTime >= 0.0 && m_useUI)
+    {
+      int width  = m_windowState.m_swapSize[0];
+      int height = m_windowState.m_swapSize[1];
+      processUI(width,height, uiTime + 0.0000001);
+    }
   }
 
   Renderer::Config config;
@@ -546,7 +561,7 @@ void Sample::think(double time)
      || m_tweak.threads != m_lastTweak.threads || m_tweak.sorted != m_lastTweak.sorted || m_tweak.percent != m_lastTweak.percent)
   {
     m_resources->synchronize();
-    initRenderer(m_tweak.renderer, m_tweak.strategy, m_tweak.threads, m_tweak.sorted, m_tweak.percent);
+    initRenderer(m_tweak.renderer, m_tweak.strategy, m_tweak.threads, m_tweak.sorted, m_tweak.percent, time);
   }
 
   m_resources->beginFrame();
@@ -585,7 +600,6 @@ void Sample::think(double time)
     sceneUbo.viewMatrixIT   = nvmath::transpose(nvmath::invert(view));
 
     sceneUbo.viewPos = sceneUbo.viewMatrixIT.row(3);
-    ;
     sceneUbo.viewDir = -view.row(2);
 
     sceneUbo.wLightPos   = sceneUbo.viewMatrixIT.row(3);
