@@ -18,8 +18,7 @@
  */
 
 
-
-#include "backends/imgui_vk_extra.h"
+#include "imgui/backends/imgui_vk_extra.h"
 
 #include "resources_vk.hpp"
 
@@ -285,7 +284,7 @@ bool ResourcesVK::init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::
   }
 #else
   {
-    m_context = context;
+    m_context   = context;
     m_swapChain = swapChain;
   }
 
@@ -1193,9 +1192,9 @@ void ResourcesVK::cmdPipelineBarrier(VkCommandBuffer cmd, bool isOptimal) const
     memBarrier.sType                = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     memBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     memBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    memBarrier.oldLayout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    memBarrier.newLayout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    memBarrier.image         = m_framebuffer.imgDepthStencil;
+    memBarrier.oldLayout        = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    memBarrier.newLayout        = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    memBarrier.image            = m_framebuffer.imgDepthStencil;
     memBarrier.subresourceRange = depthStencilRange;
 
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
@@ -1373,12 +1372,12 @@ bool ResourcesVK::initScene(const CadScene& cadscene)
     std::vector<VkWriteDescriptorSet> queuedDescriptors;
     {
       VkWriteDescriptorSet updateDescriptor = {};
-      updateDescriptor.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      updateDescriptor.dstSet = m_drawing.at(DRAW_UBO_SCENE).getSet(0);
-      updateDescriptor.dstBinding = 0;
-      updateDescriptor.dstArrayElement = 0;
-      updateDescriptor.descriptorCount = 1;
-      updateDescriptor.pBufferInfo = &descriptors[DRAW_UBO_SCENE];
+      updateDescriptor.descriptorType       = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+      updateDescriptor.dstSet               = m_drawing.at(DRAW_UBO_SCENE).getSet(0);
+      updateDescriptor.dstBinding           = 0;
+      updateDescriptor.dstArrayElement      = 0;
+      updateDescriptor.descriptorCount      = 1;
+      updateDescriptor.pBufferInfo          = &descriptors[DRAW_UBO_SCENE];
       queuedDescriptors.push_back(updateDescriptor);
     }
 
@@ -1391,12 +1390,12 @@ bool ResourcesVK::initScene(const CadScene& cadscene)
       materialsInfo[i] = info;
 
       VkWriteDescriptorSet updateDescriptor = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-      updateDescriptor.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      updateDescriptor.dstSet = m_drawing.at(DRAW_UBO_MATERIAL).getSet(i);
-      updateDescriptor.dstBinding = 0;
-      updateDescriptor.dstArrayElement = 0;
-      updateDescriptor.descriptorCount = 1;
-      updateDescriptor.pBufferInfo = &materialsInfo[i];
+      updateDescriptor.descriptorType       = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+      updateDescriptor.dstSet               = m_drawing.at(DRAW_UBO_MATERIAL).getSet(i);
+      updateDescriptor.dstBinding           = 0;
+      updateDescriptor.dstArrayElement      = 0;
+      updateDescriptor.descriptorCount      = 1;
+      updateDescriptor.pBufferInfo          = &materialsInfo[i];
 
       queuedDescriptors.push_back(updateDescriptor);
     }
@@ -1406,15 +1405,15 @@ bool ResourcesVK::initScene(const CadScene& cadscene)
     for(size_t i = 0; i < m_drawing.at(DRAW_UBO_MATRIX).getSetsCount(); i++)
     {
       VkDescriptorBufferInfo info = {m_scene.m_buffers.matrices, m_alignedMatrixSize * i, sizeof(CadScene::MatrixNode)};
-      matricesInfo[i] = info;
+      matricesInfo[i]             = info;
 
       VkWriteDescriptorSet updateDescriptor = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-      updateDescriptor.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      updateDescriptor.dstSet = m_drawing.at(DRAW_UBO_MATRIX).getSet(i);
-      updateDescriptor.dstBinding = 0;
-      updateDescriptor.dstArrayElement = 0;
-      updateDescriptor.descriptorCount = 1;
-      updateDescriptor.pBufferInfo = &matricesInfo[i];
+      updateDescriptor.descriptorType       = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+      updateDescriptor.dstSet               = m_drawing.at(DRAW_UBO_MATRIX).getSet(i);
+      updateDescriptor.dstBinding           = 0;
+      updateDescriptor.dstArrayElement      = 0;
+      updateDescriptor.descriptorCount      = 1;
+      updateDescriptor.pBufferInfo          = &matricesInfo[i];
 
       queuedDescriptors.push_back(updateDescriptor);
     }
@@ -1514,41 +1513,10 @@ void ResourcesVK::synchronize()
   vkDeviceWaitIdle(m_device);
 }
 
-nvmath::mat4f ResourcesVK::perspectiveProjection(float fovy, float aspect, float nearPlane, float farPlane) const
+glm::mat4 ResourcesVK::perspectiveProjection(float fovy, float aspect, float nearPlane, float farPlane) const
 {
-  // vulkan uses DX style 0,1 z clipspace
-
-  nvmath::mat4f M;
-  float         r, l, b, t;
-  float         f = farPlane;
-  float         n = nearPlane;
-
-  t = n * tanf(fovy * nv_to_rad * (0.5f));
-  b = -t;
-
-  l = b * aspect;
-  r = t * aspect;
-
-  M.a00 = (2.0f * n) / (r - l);
-  M.a10 = 0.0f;
-  M.a20 = 0.0f;
-  M.a30 = 0.0f;
-
-  M.a01 = 0.0f;
-  M.a11 = -(2.0f * n) / (t - b);
-  M.a21 = 0.0f;
-  M.a31 = 0.0f;
-
-  M.a02 = (r + l) / (r - l);
-  M.a12 = (t + b) / (t - b);
-  M.a22 = -(f) / (f - n);
-  M.a32 = -1.0f;
-
-  M.a03 = 0.0;
-  M.a13 = 0.0;
-  M.a23 = (f * n) / (n - f);
-  M.a33 = 0.0;
-
+  glm::mat4 M = glm::perspectiveRH_ZO(glm::radians(fovy), aspect, nearPlane, farPlane);
+  M[1][1] *= -1;
   return M;
 }
 

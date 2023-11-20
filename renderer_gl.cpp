@@ -26,8 +26,6 @@
 #include <algorithm>
 #include <assert.h>
 
-#include <nvmath/nvmath_glsltypes.h>
-
 #include "common.h"
 
 namespace csfthreaded {

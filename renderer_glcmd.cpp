@@ -25,8 +25,6 @@
 #include <algorithm>
 #include <assert.h>
 
-#include <nvmath/nvmath_glsltypes.h>
-
 #include <nvgl/contextwindow_gl.hpp>
 
 #include "common.h"

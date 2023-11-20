@@ -224,7 +224,7 @@ public:
   void animation(const Global& global) override;
   void animationReset() override;
 
-  nvmath::mat4f perspectiveProjection(float fovy, float aspect, float nearPlane, float farPlane) const override;
+  glm::mat4 perspectiveProjection(float fovy, float aspect, float nearPlane, float farPlane) const override;
 
   //////////////////////////////////////////////////////////////////////////
 

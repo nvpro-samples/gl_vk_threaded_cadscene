@@ -31,8 +31,6 @@
 #include <nvh/nvprint.hpp>
 #include <nvpwindow.hpp>
 
-#include <nvmath/nvmath_glsltypes.h>
-
 #include "common.h"
 
 

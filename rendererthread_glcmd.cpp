@@ -28,7 +28,6 @@
 #include <queue>
 
 #include <nvgl/contextwindow_gl.hpp>
-#include <nvmath/nvmath_glsltypes.h>
 #include <nvpwindow.hpp>
 
 #include "renderer.hpp"

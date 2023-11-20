@@ -24,9 +24,10 @@
 #ifndef CADSCENE_H__
 #define CADSCENE_H__
 
-#include <nvmath/nvmath.h>
+#include <glm/glm.hpp>
 #include <vector>
 #include <cstdint>
+#include <cstring>
 
 class CadScene
 {
@@ -34,8 +35,8 @@ class CadScene
 public:
   struct BBox
   {
-    nvmath::vec4f min;
-    nvmath::vec4f max;
+    glm::vec4 min;
+    glm::vec4 max;
 
     BBox()
         : min(FLT_MAX)
@@ -43,40 +44,40 @@ public:
     {
     }
 
-    inline void merge(const nvmath::vec4f& point)
+    inline void merge(const glm::vec4& point)
     {
-      min = nvmath::nv_min(min, point);
-      max = nvmath::nv_max(max, point);
+      min = glm::min(min, point);
+      max = glm::max(max, point);
     }
 
     inline void merge(const BBox& bbox)
     {
-      min = nvmath::nv_min(min, bbox.min);
-      max = nvmath::nv_max(max, bbox.max);
+      min = glm::min(min, bbox.min);
+      max = glm::max(max, bbox.max);
     }
 
-    inline BBox transformed(const nvmath::mat4f& matrix, int dim = 3)
+    inline BBox transformed(const glm::mat4& matrix, int dim = 3)
     {
-      int           i;
-      nvmath::vec4f box[16];
+      int       i;
+      glm::vec4 box[16];
       // create box corners
-      box[0] = nvmath::vec4f(min.x, min.y, min.z, min.w);
-      box[1] = nvmath::vec4f(max.x, min.y, min.z, min.w);
-      box[2] = nvmath::vec4f(min.x, max.y, min.z, min.w);
-      box[3] = nvmath::vec4f(max.x, max.y, min.z, min.w);
-      box[4] = nvmath::vec4f(min.x, min.y, max.z, min.w);
-      box[5] = nvmath::vec4f(max.x, min.y, max.z, min.w);
-      box[6] = nvmath::vec4f(min.x, max.y, max.z, min.w);
-      box[7] = nvmath::vec4f(max.x, max.y, max.z, min.w);
+      box[0] = glm::vec4(min.x, min.y, min.z, min.w);
+      box[1] = glm::vec4(max.x, min.y, min.z, min.w);
+      box[2] = glm::vec4(min.x, max.y, min.z, min.w);
+      box[3] = glm::vec4(max.x, max.y, min.z, min.w);
+      box[4] = glm::vec4(min.x, min.y, max.z, min.w);
+      box[5] = glm::vec4(max.x, min.y, max.z, min.w);
+      box[6] = glm::vec4(min.x, max.y, max.z, min.w);
+      box[7] = glm::vec4(max.x, max.y, max.z, min.w);
 
-      box[8]  = nvmath::vec4f(min.x, min.y, min.z, max.w);
-      box[9]  = nvmath::vec4f(max.x, min.y, min.z, max.w);
-      box[10] = nvmath::vec4f(min.x, max.y, min.z, max.w);
-      box[11] = nvmath::vec4f(max.x, max.y, min.z, max.w);
-      box[12] = nvmath::vec4f(min.x, min.y, max.z, max.w);
-      box[13] = nvmath::vec4f(max.x, min.y, max.z, max.w);
-      box[14] = nvmath::vec4f(min.x, max.y, max.z, max.w);
-      box[15] = nvmath::vec4f(max.x, max.y, max.z, max.w);
+      box[8]  = glm::vec4(min.x, min.y, min.z, max.w);
+      box[9]  = glm::vec4(max.x, min.y, min.z, max.w);
+      box[10] = glm::vec4(min.x, max.y, min.z, max.w);
+      box[11] = glm::vec4(max.x, max.y, min.z, max.w);
+      box[12] = glm::vec4(min.x, min.y, max.z, max.w);
+      box[13] = glm::vec4(max.x, min.y, max.z, max.w);
+      box[14] = glm::vec4(min.x, max.y, max.z, max.w);
+      box[15] = glm::vec4(max.x, max.y, max.z, max.w);
 
       // transform box corners
       // and find new mins,maxs
@@ -84,7 +85,7 @@ public:
 
       for(i = 0; i < (1 << dim); i++)
       {
-        nvmath::vec4f point = matrix * box[i];
+        glm::vec4 point = matrix * box[i];
         bbox.merge(point);
       }
 
@@ -94,10 +95,10 @@ public:
 
   struct MaterialSide
   {
-    nvmath::vec4f ambient;
-    nvmath::vec4f diffuse;
-    nvmath::vec4f specular;
-    nvmath::vec4f emissive;
+    glm::vec4 ambient;
+    glm::vec4 diffuse;
+    glm::vec4 specular;
+    glm::vec4 emissive;
   };
 
   // need to keep this 256 byte aligned (UBO range)
@@ -112,17 +113,17 @@ public:
   // need to keep this 256 byte aligned (UBO range)
   struct MatrixNode
   {
-    nvmath::mat4f worldMatrix;
-    nvmath::mat4f worldMatrixIT;
-    nvmath::mat4f objectMatrix;
-    nvmath::mat4f objectMatrixIT;
+    glm::mat4 worldMatrix;
+    glm::mat4 worldMatrixIT;
+    glm::mat4 objectMatrix;
+    glm::mat4 objectMatrixIT;
   };
 
   struct Vertex
   {
-    nvmath::vec3f position;
-    uint16_t      normalOctX;
-    uint16_t      normalOctY;
+    glm::vec3 position;
+    uint16_t  normalOctX;
+    uint16_t  normalOctY;
   };
 
   struct DrawRange
@@ -202,12 +203,12 @@ public:
     DrawRangeCache cacheWire;
   };
 
-  std::vector<Material>      m_materials;
-  std::vector<BBox>          m_geometryBboxes;
-  std::vector<Geometry>      m_geometry;
-  std::vector<MatrixNode>    m_matrices;
-  std::vector<Object>        m_objects;
-  std::vector<nvmath::vec2i> m_objectAssigns;
+  std::vector<Material>   m_materials;
+  std::vector<BBox>       m_geometryBboxes;
+  std::vector<Geometry>   m_geometry;
+  std::vector<MatrixNode> m_matrices;
+  std::vector<Object>     m_objects;
+  std::vector<glm::ivec2> m_objectAssigns;
 
 
   BBox m_bbox;

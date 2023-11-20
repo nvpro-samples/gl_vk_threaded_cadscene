@@ -25,17 +25,18 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <glm/gtc/type_ptr.hpp>
 
 #define USE_CACHECOMBINE 1
 
 
-nvmath::vec4f randomVector(float from, float to)
+glm::vec4 randomVector(float from, float to)
 {
-  nvmath::vec4f vec;
-  float         width = to - from;
+  glm::vec4 vec;
+  float     width = to - from;
   for(int i = 0; i < 4; i++)
   {
-    vec.get_value()[i] = from + (float(rand()) / float(RAND_MAX)) * width;
+    vec[i] = from + (float(rand()) / float(RAND_MAX)) * width;
   }
   return vec;
 }
@@ -43,37 +44,42 @@ nvmath::vec4f randomVector(float from, float to)
 // all oct functions derived from "A Survey of Efficient Representations for Independent Unit Vectors"
 // http://jcgt.org/published/0003/02/01/paper.pdf
 // Returns +/- 1
-inline nvmath::vec3f oct_signNotZero(nvmath::vec3f v) {
+inline glm::vec3 oct_signNotZero(glm::vec3 v)
+{
   // leaves z as is
-  return nvmath::vec3f((v.x >= 0.0f) ? +1.0f : -1.0f, (v.y >= 0.0f) ? +1.0f : -1.0f, 1.0f);
+  return glm::vec3((v.x >= 0.0f) ? +1.0f : -1.0f, (v.y >= 0.0f) ? +1.0f : -1.0f, 1.0f);
 }
 
 // Assume normalized input. Output is on [-1, 1] for each component.
-inline nvmath::vec3f float32x3_to_oct(nvmath::vec3f v) {
+inline glm::vec3 float32x3_to_oct(glm::vec3 v)
+{
   // Project the sphere onto the octahedron, and then onto the xy plane
-  nvmath::vec3f p = nvmath::vec3f(v.x, v.y, 0) * (1.0f / (fabsf(v.x) + fabsf(v.y) + fabsf(v.z)));
+  glm::vec3 p = glm::vec3(v.x, v.y, 0) * (1.0f / (fabsf(v.x) + fabsf(v.y) + fabsf(v.z)));
   // Reflect the folds of the lower hemisphere over the diagonals
-  return (v.z <= 0.0f) ? nvmath::vec3f(1.0f - fabsf(p.y), 1.0f - fabsf(p.x), 0.0f) * oct_signNotZero(p) : p;
+  return (v.z <= 0.0f) ? glm::vec3(1.0f - fabsf(p.y), 1.0f - fabsf(p.x), 0.0f) * oct_signNotZero(p) : p;
 }
 
-inline nvmath::vec3f oct_to_float32x3(nvmath::vec3f e) {
-  nvmath::vec3f v = nvmath::vec3f(e.x, e.y, 1.0f - fabsf(e.x) - fabsf(e.y));
-  if (v.z < 0.0f) {
-    v = nvmath::vec3f(1.0f - fabs(v.y), 1.0f - fabs(v.x), v.z) * oct_signNotZero(v);
+inline glm::vec3 oct_to_float32x3(glm::vec3 e)
+{
+  glm::vec3 v = glm::vec3(e.x, e.y, 1.0f - fabsf(e.x) - fabsf(e.y));
+  if(v.z < 0.0f)
+  {
+    v = glm::vec3(1.0f - fabs(v.y), 1.0f - fabs(v.x), v.z) * oct_signNotZero(v);
   }
-  return nvmath::normalize(v);
+  return glm::normalize(v);
 }
 
-inline nvmath::vec3f float32x3_to_octn_precise(nvmath::vec3f v, const int n) {
-  nvmath::vec3f s = float32x3_to_oct(v);  // Remap to the square
-                                // Each snorm's max value interpreted as an integer,
-                                // e.g., 127.0 for snorm8
+inline glm::vec3 float32x3_to_octn_precise(glm::vec3 v, const int n)
+{
+  glm::vec3 s = float32x3_to_oct(v);  // Remap to the square
+                                      // Each snorm's max value interpreted as an integer,
+                                      // e.g., 127.0 for snorm8
   float M = float(1 << ((n / 2) - 1)) - 1.0;
   // Remap components to snorm(n/2) precision...with floor instead
   // of round (see equation 1)
-  s = nvmath::nv_floor(nvmath::nv_clamp(s, -1.0f, +1.0f) * M) * (1.0f / M);
-  nvmath::vec3f bestRepresentation = s;
-  float highestCosine = nvmath::dot(oct_to_float32x3(s), v);
+  s                            = glm::floor(glm::clamp(s, -1.0f, +1.0f) * M) * (1.0f / M);
+  glm::vec3 bestRepresentation = s;
+  float     highestCosine      = glm::dot(oct_to_float32x3(s), v);
   // Test all combinations of floor and ceil and keep the best.
   // Note that at +/- 1, this will exit the square... but that
   // will be a worse encoding and never win.
@@ -87,8 +93,8 @@ inline nvmath::vec3f float32x3_to_octn_precise(nvmath::vec3f v, const int n) {
         // Offset the bit pattern (which is stored in floating
         // point!) to effectively change the rounding mode
         // (when i or j is 0: floor, when it is one: ceiling)
-        nvmath::vec3f candidate = nvmath::vec3f(i, j, 0) * (1 / M) + s;
-        float         cosine    = nvmath::dot(oct_to_float32x3(candidate), v);
+        glm::vec3 candidate = glm::vec3(i, j, 0) * (1 / M) + s;
+        float     cosine    = glm::dot(oct_to_float32x3(candidate), v);
         if(cosine > highestCosine)
         {
           bestRepresentation = candidate;
@@ -127,7 +133,7 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
     for(int i = 0; i < 2; i++)
     {
       material.sides[i].ambient  = randomVector(0.0f, 0.1f);
-      material.sides[i].diffuse  = nvmath::vec4f(csf->materials[n].color) + randomVector(0.0f, 0.07f);
+      material.sides[i].diffuse  = glm::make_vec4(csf->materials[n].color) + randomVector(0.0f, 0.07f);
       material.sides[i].specular = randomVector(0.25f, 0.55f);
       material.sides[i].emissive = randomVector(0.0f, 0.05f);
     }
@@ -154,9 +160,8 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
       vertices[i].position[0] = csfgeom->vertex[3 * i + 0];
       vertices[i].position[1] = csfgeom->vertex[3 * i + 1];
       vertices[i].position[2] = csfgeom->vertex[3 * i + 2];
-      vertices[i].position[3] = 1.0f;
 
-      nvmath::vec3f normal;
+      glm::vec3 normal;
       if(csfgeom->normal)
       {
         normal.x = csfgeom->normal[3 * i + 0];
@@ -165,14 +170,14 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
       }
       else
       {
-        normal = normalize(nvmath::vec3f(vertices[i].position));
+        normal = normalize(glm::vec3(vertices[i].position));
       }
 
-      nvmath::vec3f packed   = float32x3_to_octn_precise(normal, 16);
+      glm::vec3 packed       = float32x3_to_octn_precise(normal, 16);
       vertices[i].normalOctX = std::min(32767, std::max(-32767, int32_t(packed.x * 32767.0f)));
       vertices[i].normalOctY = std::min(32767, std::max(-32767, int32_t(packed.y * 32767.0f)));
 
-      m_geometryBboxes[n].merge(nvmath::vec4f(vertices[i].position));
+      m_geometryBboxes[n].merge(glm::vec4(vertices[i].position, 1.f));
     }
 
     geom.vboData = vertices;
@@ -229,11 +234,11 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
   {
     CSFNode* csfnode = &csf->nodes[n];
 
-    memcpy(m_matrices[n].objectMatrix.get_value(), csfnode->objectTM, sizeof(float) * 16);
-    memcpy(m_matrices[n].worldMatrix.get_value(), csfnode->worldTM, sizeof(float) * 16);
+    memcpy(glm::value_ptr(m_matrices[n].objectMatrix), csfnode->objectTM, sizeof(float) * 16);
+    memcpy(glm::value_ptr(m_matrices[n].worldMatrix), csfnode->worldTM, sizeof(float) * 16);
 
-    m_matrices[n].objectMatrixIT = nvmath::transpose(nvmath::invert(m_matrices[n].objectMatrix));
-    m_matrices[n].worldMatrixIT  = nvmath::transpose(nvmath::invert(m_matrices[n].worldMatrix));
+    m_matrices[n].objectMatrixIT = glm::transpose(glm::inverse(m_matrices[n].objectMatrix));
+    m_matrices[n].worldMatrixIT  = glm::transpose(glm::inverse(m_matrices[n].worldMatrix));
 
     if(csfnode->geometryIDX < 0)
       continue;
@@ -258,7 +263,7 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
     object.matrixIndex   = n;
     object.geometryIndex = csfnode->geometryIDX;
 
-    m_objectAssigns[numObjects] = nvmath::vec2i(object.matrixIndex, object.geometryIndex);
+    m_objectAssigns[numObjects] = glm::ivec2(object.matrixIndex, object.geometryIndex);
 
     object.parts.resize(csfnode->numParts);
     for(int i = 0; i < csfnode->numParts; i++)
@@ -284,7 +289,7 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
 
   // compute clone move delta based on m_bbox;
 
-  nvmath::vec4f dim = m_bbox.max - m_bbox.min;
+  glm::vec4 dim = m_bbox.max - m_bbox.min;
 
   int sq      = 1;
   int numAxis = 0;
@@ -319,7 +324,7 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
   {
     int numNodes = csf->numNodes;
 
-    nvmath::vec4f shift = dim * 1.05f;
+    glm::vec4 shift = dim * 1.05f;
 
     float u = 0;
     float v = 0;
@@ -384,15 +389,15 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
       MatrixNode& node     = m_matrices[n + numNodes * c];
       MatrixNode& nodeOrig = m_matrices[n];
       node                 = nodeOrig;
-      node.worldMatrix.set_col(3, node.worldMatrix.col(3) + shift);
-      node.worldMatrixIT = nvmath::transpose(nvmath::invert(node.worldMatrix));
+      node.worldMatrix[3]  = node.worldMatrix[3] + shift;
+      node.worldMatrixIT = glm::transpose(glm::inverse(node.worldMatrix));
     }
 
     {
       // patch object matrix of root
       MatrixNode& node = m_matrices[csf->rootIDX + numNodes * c];
-      node.objectMatrix.set_col(3, node.objectMatrix.col(3) + shift);
-      node.objectMatrixIT = nvmath::transpose(nvmath::invert(node.objectMatrix));
+      node.objectMatrix[3] = node.objectMatrix[3] + shift;
+      node.objectMatrixIT = glm::transpose(glm::inverse(node.objectMatrix));
     }
 
     // clone objects
@@ -418,7 +423,7 @@ bool CadScene::loadCSF(const char* filename, int clones, int cloneaxis)
         object.cacheWire.state[i].matrixIndex += c * numNodes;
       }
 
-      m_objectAssigns[n + numObjects * c] = nvmath::vec2i(object.matrixIndex, object.geometryIndex);
+      m_objectAssigns[n + numObjects * c] = glm::ivec2(object.matrixIndex, object.geometryIndex);
     }
   }
 

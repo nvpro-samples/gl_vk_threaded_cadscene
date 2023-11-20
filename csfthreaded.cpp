@@ -23,6 +23,7 @@
 #define DEBUG_FILTER 1
 
 #include <imgui/imgui_helper.h>
+#include <glm/gtc/type_ptr.hpp>
 
 #if HAS_OPENGL
 #include <include_gl.h>
@@ -41,6 +42,7 @@
 #include <nvh/geometry.hpp>
 
 #include "renderer.hpp"
+#include "glm/gtc/matrix_access.hpp"
 
 
 namespace csfthreaded {
@@ -420,10 +422,10 @@ bool Sample::begin()
     m_ui.enumAdd(GUI_MSAA, 8, "8x");
   }
 
-  m_control.m_sceneOrbit     = nvmath::vec3f(m_scene.m_bbox.max + m_scene.m_bbox.min) * 0.5f;
-  m_control.m_sceneDimension = nvmath::length((m_scene.m_bbox.max - m_scene.m_bbox.min));
-  m_control.m_viewMatrix = nvmath::look_at(m_control.m_sceneOrbit - (-nvmath::vec3f(1, 1, 1) * m_control.m_sceneDimension * 0.5f),
-                                           m_control.m_sceneOrbit, nvmath::vec3f(0, 1, 0));
+  m_control.m_sceneOrbit     = glm::vec3(m_scene.m_bbox.max + m_scene.m_bbox.min) * 0.5f;
+  m_control.m_sceneDimension = glm::length((m_scene.m_bbox.max - m_scene.m_bbox.min));
+  m_control.m_viewMatrix = glm::lookAt(m_control.m_sceneOrbit - (-glm::vec3(1, 1, 1) * m_control.m_sceneDimension * 0.5f),
+                                           m_control.m_sceneOrbit, glm::vec3(0, 1, 0));
 
   m_shared.animUbo.sceneCenter    = m_control.m_sceneOrbit;
   m_shared.animUbo.sceneDimension = m_control.m_sceneDimension * 0.2f;
@@ -528,8 +530,8 @@ void Sample::think(double time)
     processUI(width, height, time);
   }
 
-  m_control.processActions(m_windowState.m_winSize,
-                           nvmath::vec2f(m_windowState.m_mouseCurrent[0], m_windowState.m_mouseCurrent[1]),
+  m_control.processActions(glm::ivec2(m_windowState.m_winSize[0],m_windowState.m_winSize[1]),
+                           glm::vec2(m_windowState.m_mouseCurrent[0], m_windowState.m_mouseCurrent[1]),
                            m_windowState.m_mouseButtonFlags, m_windowState.m_mouseWheel);
 
   if(m_windowState.onPress(KEY_R))
@@ -582,27 +584,27 @@ void Sample::think(double time)
 
     sceneUbo.viewport = ivec2(width, height);
 
-    nvmath::mat4 projection =
+    glm::mat4 projection =
         m_resources->perspectiveProjection((45.f), float(width) / float(height), m_control.m_sceneDimension * 0.001f,
                                            m_control.m_sceneDimension * 10.0f);
-    nvmath::mat4 view = m_control.m_viewMatrix;
+    glm::mat4 view = m_control.m_viewMatrix;
 
     if(m_tweak.animation && m_tweak.animationSpin)
     {
-      double animTime = (time - m_animBeginTime) * 0.3 + nv_pi * 0.2;
+      double animTime = (time - m_animBeginTime) * 0.3 + glm::pi<double>() * 0.2;
       vec3   dir      = vec3(cos(animTime), 1, sin(animTime));
-      view            = nvmath::look_at(m_control.m_sceneOrbit - (-dir * m_control.m_sceneDimension * 0.5f),
+      view            = glm::lookAt(m_control.m_sceneOrbit - (-dir * m_control.m_sceneDimension * 0.5f),
                              m_control.m_sceneOrbit, vec3(0, 1, 0));
     }
 
     sceneUbo.viewProjMatrix = projection * view;
     sceneUbo.viewMatrix     = view;
-    sceneUbo.viewMatrixIT   = nvmath::transpose(nvmath::invert(view));
+    sceneUbo.viewMatrixIT   = glm::transpose(glm::inverse(view));
 
-    sceneUbo.viewPos = sceneUbo.viewMatrixIT.row(3);
-    sceneUbo.viewDir = -view.row(2);
+    sceneUbo.viewPos = glm::row(sceneUbo.viewMatrixIT, 3);
+    sceneUbo.viewDir = -glm::row(view,2);
 
-    sceneUbo.wLightPos   = sceneUbo.viewMatrixIT.row(3);
+    sceneUbo.wLightPos   = glm::row(sceneUbo.viewMatrixIT,3);
     sceneUbo.wLightPos.w = 1.0;
 
     m_shared.workingSet    = m_tweak.workingSet;

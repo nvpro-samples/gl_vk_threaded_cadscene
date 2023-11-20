@@ -72,7 +72,7 @@
 #ifdef __cplusplus
 namespace csfthreaded
 {
-  using namespace nvmath;
+  using namespace glm;
 #endif
 
 struct SceneData {

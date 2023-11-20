@@ -20,8 +20,9 @@
 
 #pragma once
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include "cadscene.hpp"
-#include <nvgl/glsltypes_gl.hpp>
 #include <nvh/nvprint.hpp>
 #include <nvh/profiler.hpp>
 #include <platform.h>
@@ -129,9 +130,9 @@ public:
   virtual void blitFrame(const Global& global) {}
   virtual void endFrame() {}
 
-  virtual nvmath::mat4f perspectiveProjection(float fovy, float aspect, float nearPlane, float farPlane) const
+  virtual glm::mat4 perspectiveProjection(float fovy, float aspect, float nearPlane, float farPlane) const
   {
-    return nvmath::perspective(fovy, aspect, nearPlane, farPlane);
+    return glm::perspective(glm::radians( fovy), aspect, nearPlane, farPlane);
   }
 
   inline void initAlignedSizes(unsigned int alignment)
