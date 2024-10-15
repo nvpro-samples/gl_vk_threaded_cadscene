@@ -437,7 +437,7 @@ bool ResourcesVK::init(nvvk::Context* context, nvvk::SwapChain* swapChain, nvh::
 
   {
     ImGui::InitVK(m_context->m_device, m_context->m_physicalDevice, m_context->m_queueGCT.queue,
-                  m_context->m_queueGCT.familyIndex, m_framebuffer.passUI, 0);
+                  m_context->m_queueGCT.familyIndex, m_framebuffer.passUI);
   }
 
   return true;
