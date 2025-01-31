@@ -1,3 +1,10 @@
+# DEPRECATED
+
+This sample is from older versions of the Vulkan API and we therefore do not recommend it anymore.
+
+- Vulkan: Please have a look at [vk_device_generated_cmds](https://github.com/nvpro-samples/vk_device_generated_cmds), which shows various means to record draw calls from CPU or GPU threads and multiple methods to pass data to shaders, as well as alternatives to the shader binding process.
+- OpenGL: The [gl_cadscene_rendertechniques](https://github.com/nvpro-samples/gl_cadscene_rendertechniques) sample still showcases various techniques and their performance impact.
+
 # Vulkan & OpenGL Threaded CAD Scene Sample
 
 The "threaded cadscene" sample allows comparing various rendering approaches using core OpenGL, extended OpenGL via bindless graphics and NV_command_list as well as Vulkan. It does make use of NVIDIA specific extensions to use Vulkan within an OpenGL context and display a Vulkan image.
@@ -168,10 +175,6 @@ As this sample only uses two pipeline objects (or state-objects in OpenGL) and t
 Make sure to have installed the [Vulkan-SDK](http://lunarg.com/vulkan-sdk/). Always use 64-bit build configurations.
 
 For best Vulkan performance use the vk exe (starting with vk_ ). If you are not interested in building the OpenGL & Vulkan combined exe then use the `BUILD_<projectname>_VULKAN_ONLY` cmake option.
-
-Ideally, clone this and other interesting [nvpro-samples](https://github.com/nvpro-samples) repositories into a common subdirectory. You will always need [nvpro_core](https://github.com/nvpro-samples/nvpro_core). The nvpro_core is searched either as a subdirectory of the sample, or one directory up.
-
-If you are interested in multiple samples, you can use [build_all](https://github.com/nvpro-samples/build_all) CMAKE as entry point, it will also give you options to enable/disable individual samples when creating the solutions.
 
 ### Related Samples
 [gl cadscene render techniques](https://github.com/nvpro-samples/gl_cadscene_rendertechniques) is most similar to this sample and covers various OpenGL approaches.
